@@ -1,0 +1,1793 @@
+'use client'
+
+import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import ReactMarkdown from 'react-markdown'
+import { themes, themeOrder } from '../themes'
+import {
+  type Conversation,
+  createConversation,
+  getTitleFromMessages,
+  loadConversations,
+  saveConversations,
+} from '../conversations'
+import {
+  type MemoryItem,
+  loadMemory,
+  saveMemory,
+  createMemoryItem,
+  buildMemoryPrompt,
+} from '../memory'
+import { type Persona, BUILT_IN_PERSONAS, DEFAULT_PROMPT, getPersonaById } from '../personas'
+import { generateId } from '../utils'
+
+async function streamToString(res: Response): Promise<string> {
+  if (!res.ok) return ''
+  const reader = res.body!.getReader()
+  const decoder = new TextDecoder()
+  let result = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    for (const line of decoder.decode(value).split('\n')) {
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6)
+      if (data === '[DONE]') continue
+      try { result += JSON.parse(data).choices?.[0]?.delta?.content ?? '' } catch {}
+    }
+  }
+  return result.trim()
+}
+
+function getClothingAdvice(temp: number): string {
+  if (temp < 10) return '记得穿厚一点'
+  if (temp < 20) return '薄外套就够'
+  if (temp < 26) return '长袖舒服'
+  return 'T恤就行'
+}
+
+type SpaceReply = { author: string; content: string; createdAt: number }
+type SpaceComment = { personaId: string; content: string; createdAt: number; replies?: SpaceReply[] }
+type Post = { id: string; content: string; createdAt: number; visibleTo: string[]; comments: SpaceComment[] }
+
+type ApiConfig = {
+  name: string
+  provider: 'openai-compatible'
+  baseUrl: string
+  apiKey: string
+  model: string
+  llmEndpoint: string
+  modelsEndpoint: string
+  temperature: number
+}
+const DEFAULT_API_DRAFT: ApiConfig = {
+  name: '',
+  provider: 'openai-compatible',
+  baseUrl: '',
+  apiKey: '',
+  model: '',
+  llmEndpoint: '/chat/completions',
+  modelsEndpoint: '/models',
+  temperature: 0.8,
+}
+const API_CONFIGS_KEY = 'api-configs'
+const ACTIVE_CONFIG_KEY = 'active-api-config'
+
+const SPACE_PERSONAS = BUILT_IN_PERSONAS.filter(p => p.id !== 'default')
+const SPACE_STORAGE_KEY = 'space-posts'
+
+function formatPostTime(ts: number): string {
+  const diff = Date.now() - ts
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+
+export default function ChatPage() {
+  const router = useRouter()
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [currentId, setCurrentId] = useState<string>('')
+  const [mounted, setMounted] = useState(false)
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showMemory, setShowMemory] = useState(false)
+  const [showApiSettings, setShowApiSettings] = useState(false)
+  const [devMode, setDevMode] = useState(false)
+  const [apiConfigs, setApiConfigs] = useState<ApiConfig[]>([])
+  const [activeConfigName, setActiveConfigName] = useState<string | null>(null)
+  const [apiDraft, setApiDraft] = useState<ApiConfig>({ ...DEFAULT_API_DRAFT })
+  const [apiKeyVisible, setApiKeyVisible] = useState(false)
+  const [modelList, setModelList] = useState<string[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [apiTestStatus, setApiTestStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [apiTestMsg, setApiTestMsg] = useState('')
+  const [showMenu, setShowMenu] = useState(false)
+  const [systemPrompt, setSystemPrompt] = useState('')
+  const [systemPromptDraft, setSystemPromptDraft] = useState('')
+  const [showPreview, setShowPreview] = useState(false)
+  const [personaOverrides, setPersonaOverrides] = useState<Record<string, string>>({})
+  const [customPersonas, setCustomPersonas] = useState<Persona[]>([])
+  const [editingPersonaId, setEditingPersonaId] = useState<string>('default')
+  const [newPersonaName, setNewPersonaName] = useState('')
+  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([])
+  const [newMemoryInput, setNewMemoryInput] = useState('')
+  const [animatedIds, setAnimatedIds] = useState<Set<number>>(new Set())
+  const [themeKey, setThemeKey] = useState('morning')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [isMobile, setIsMobile] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [transitioning, setTransitioning] = useState(false)
+  const [collapsedPersonas, setCollapsedPersonas] = useState<Set<string>>(new Set())
+  const [viewingPersona, setViewingPersona] = useState<Persona | null>(null)
+  const [viewingSpace, setViewingSpace] = useState(false)
+  const [dailyQuote, setDailyQuote] = useState('')
+  const [sidebarWeather, setSidebarWeather] = useState<{ temp: number; description: string } | null>(null)
+  const [posts, setPosts] = useState<Post[]>([])
+  const [generatingFor, setGeneratingFor] = useState<Set<string>>(new Set())
+  const [draftContent, setDraftContent] = useState('')
+  const [spaceVisiblePersonaId, setSpaceVisiblePersonaId] = useState<string | null>(null)
+  const [replyingTo, setReplyingTo] = useState<{ postId: string; commentIdx: number } | null>(null)
+  const [replyDraft, setReplyDraft] = useState('')
+  const [generatingReplyFor, setGeneratingReplyFor] = useState<Set<string>>(new Set())
+  const composeRef = useRef<HTMLTextAreaElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const editInputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const typewriterRef = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null })
+
+  const t = themes[themeKey]
+  const currentConversation = conversations.find(c => c.id === currentId)
+  const messages = currentConversation?.messages ?? []
+
+  useEffect(() => {
+    const saved = loadConversations()
+    if (saved.length > 0) {
+      setConversations(saved)
+      setCurrentId(saved[0].id)
+    } else {
+      const first = createConversation()
+      setConversations([first])
+      setCurrentId(first.id)
+    }
+    try {
+      const savedPrompt = localStorage.getItem('system-prompt')
+      if (savedPrompt) setSystemPrompt(savedPrompt)
+      const savedTheme = localStorage.getItem('theme')
+      if (savedTheme && themes[savedTheme]) setThemeKey(savedTheme)
+      const savedOverrides = localStorage.getItem('persona-prompts')
+      if (savedOverrides) setPersonaOverrides(JSON.parse(savedOverrides))
+      const savedCustom = localStorage.getItem('custom-personas')
+      if (savedCustom) setCustomPersonas(JSON.parse(savedCustom))
+      setDevMode(localStorage.getItem('dev-mode') === 'true')
+      const savedConfigs = localStorage.getItem(API_CONFIGS_KEY)
+      if (savedConfigs) setApiConfigs(JSON.parse(savedConfigs))
+      const savedActive = localStorage.getItem(ACTIVE_CONFIG_KEY)
+      if (savedActive) setActiveConfigName(savedActive)
+    } catch {}
+    setMemoryItems(loadMemory())
+    try {
+      const savedPosts = localStorage.getItem(SPACE_STORAGE_KEY)
+      if (savedPosts) setPosts(JSON.parse(savedPosts))
+    } catch {}
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  useEffect(() => {
+    if (mounted) saveConversations(conversations)
+  }, [conversations, mounted])
+
+  useEffect(() => {
+    if (mounted) saveMemory(memoryItems)
+  }, [memoryItems, mounted])
+
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus()
+      editInputRef.current.select()
+    }
+  }, [editingId])
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    if (window.innerWidth < 640) setSidebarOpen(false)
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  useEffect(() => {
+    if (!mounted) return
+
+    // 天气
+    fetch('/api/weather')
+      .then(r => r.json())
+      .then(d => { if (!d.error) setSidebarWeather({ temp: d.temp, description: d.description }) })
+      .catch(() => {})
+
+    // 每日一句：当天有缓存就用，否则调 API 生成
+    const today = new Date().toISOString().slice(0, 10)
+    try {
+      const cached = JSON.parse(localStorage.getItem('daily-quote') || 'null')
+      if (cached?.date === today && cached?.text) {
+        setDailyQuote(cached.text)
+        return
+      }
+    } catch {}
+
+    fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: '请生成一句简短温暖的中文每日问候或鼓励语（15字以内），直接输出文字，不加引号或任何说明。' }],
+        systemPrompt: '你是一个简洁温暖的助手，只输出一句话，不超过15个字。',
+        ...getApiConfigForRequest(),
+      }),
+    })
+      .then(res => streamToString(res))
+      .then(text => {
+        if (text) {
+          setDailyQuote(text)
+          localStorage.setItem('daily-quote', JSON.stringify({ date: today, text }))
+        }
+      })
+      .catch(() => {})
+  }, [mounted])
+
+  const closeSidebarOnMobile = () => { if (isMobile) setSidebarOpen(false) }
+  const getApiConfigForRequest = () => {
+    const dm = localStorage.getItem('dev-mode') === 'true'
+    if (dm) return { devMode: true as const }
+    const configs: ApiConfig[] = JSON.parse(localStorage.getItem(API_CONFIGS_KEY) || '[]')
+    const activeName = localStorage.getItem(ACTIVE_CONFIG_KEY)
+    const apiConfig = configs.find(c => c.name === activeName) ?? undefined
+    return { devMode: false as const, apiConfig }
+  }
+
+  const persistPosts = (next: Post[]) => {
+    try { localStorage.setItem(SPACE_STORAGE_KEY, JSON.stringify(next)) } catch {}
+  }
+
+  const addSpaceComment = (postId: string, comment: SpaceComment) => {
+    setPosts(prev => {
+      const next = prev.map(p => p.id === postId ? { ...p, comments: [...p.comments, comment] } : p)
+      persistPosts(next)
+      return next
+    })
+  }
+
+  const generateSpaceComments = async (postId: string, content: string, personaIds: string[]) => {
+    setGeneratingFor(prev => new Set(prev).add(postId))
+    const convs = loadConversations()
+    for (const personaId of personaIds) {
+      const persona = BUILT_IN_PERSONAS.find(p => p.id === personaId)
+      if (!persona) continue
+      const recentConv = convs.filter(c => c.personaId === personaId).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+      const recentMsgs = recentConv?.messages?.slice(-6) ?? []
+      const recentContext = recentMsgs.length > 0
+        ? '\n\n以下是你们最近聊过的内容（仅供参考，不必提及）：\n' +
+          recentMsgs.map(m => `${m.role === 'user' ? '慧妍' : persona.name}：${m.content}`).join('\n')
+        : ''
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: `慧妍刚刚发了一条动态：「${content}」。请以你的角色身份，简短评论这条动态（1-3句话，朋友圈评论的语气）。如果和你们之间的记忆或最近聊过的内容有关联，可以自然带到；没有关联也完全没问题，正常评论就好，不要刻意。` }],
+            systemPrompt: persona.systemPrompt + recentContext,
+            personaName: persona.name,
+            ...getApiConfigForRequest(),
+          }),
+        })
+        const text = await streamToString(res)
+        if (text) addSpaceComment(postId, { personaId, content: text, createdAt: Date.now() })
+      } catch (e) { console.error(`评论生成失败 (${persona.name}):`, e) }
+      await new Promise(r => setTimeout(r, 1500))
+    }
+    setGeneratingFor(prev => { const next = new Set(prev); next.delete(postId); return next })
+  }
+
+  const addReplyToComment = (postId: string, commentIdx: number, reply: SpaceReply) => {
+    setPosts(prev => {
+      const next = prev.map(p => {
+        if (p.id !== postId) return p
+        const comments = p.comments.map((c, i) =>
+          i === commentIdx ? { ...c, replies: [...(c.replies ?? []), reply] } : c
+        )
+        return { ...p, comments }
+      })
+      persistPosts(next)
+      return next
+    })
+  }
+
+  const submitReply = async (postId: string, commentIdx: number, comment: SpaceComment, postContent: string) => {
+    const text = replyDraft.trim()
+    if (!text) return
+    setReplyingTo(null)
+    setReplyDraft('')
+    addReplyToComment(postId, commentIdx, { author: 'user', content: text, createdAt: Date.now() })
+    const key = `${postId}-${commentIdx}`
+    setGeneratingReplyFor(prev => new Set(prev).add(key))
+    const persona = BUILT_IN_PERSONAS.find(p => p.id === comment.personaId)
+    if (persona) {
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: `慧妍发了一条动态：「${postContent}」\n你评论了：「${comment.content}」\n慧妍回复你：「${text}」\n请用1-3句话，以朋友圈评论的语气自然回应她。不要解释，直接说。` }],
+            systemPrompt: persona.systemPrompt,
+            personaName: persona.name,
+            ...getApiConfigForRequest(),
+          }),
+        })
+        const reply = await streamToString(res)
+        if (reply) addReplyToComment(postId, commentIdx, { author: comment.personaId, content: reply, createdAt: Date.now() })
+      } catch (e) { console.error('回复生成失败:', e) }
+    }
+    setGeneratingReplyFor(prev => { const n = new Set(prev); n.delete(key); return n })
+  }
+
+  const publishPost = () => {
+    if (!draftContent.trim()) return
+    const visibleTo = spaceVisiblePersonaId ? [spaceVisiblePersonaId] : SPACE_PERSONAS.map(p => p.id)
+    const newPost: Post = { id: generateId(), content: draftContent.trim(), createdAt: Date.now(), visibleTo, comments: [] }
+    const next = [newPost, ...posts]
+    setPosts(next)
+    persistPosts(next)
+    setDraftContent('')
+    if (composeRef.current) composeRef.current.style.height = 'auto'
+    const delay = 12000 + Math.random() * 3000
+    setTimeout(() => generateSpaceComments(newPost.id, newPost.content, newPost.visibleTo), delay)
+  }
+
+  const cycleSpaceVisibility = () => {
+    if (spaceVisiblePersonaId === null) {
+      setSpaceVisiblePersonaId(SPACE_PERSONAS[0]?.id ?? null)
+    } else {
+      const idx = SPACE_PERSONAS.findIndex(p => p.id === spaceVisiblePersonaId)
+      const next = SPACE_PERSONAS[idx + 1]
+      setSpaceVisiblePersonaId(next ? next.id : null)
+    }
+  }
+
+  const handleGoHome = () => {
+    setTransitioning(true)
+    setTimeout(() => router.push('/'), 400)
+  }
+
+  const newConversationForPersona = (personaId: string) => {
+    const c: Conversation = { ...createConversation(), personaId }
+    setConversations(prev => [c, ...prev])
+    setCurrentId(c.id)
+    setAnimatedIds(new Set())
+    setViewingSpace(false)
+    setInput('')
+    setViewingPersona(null)
+  }
+
+  const togglePersonaCollapse = (personaId: string) => {
+    setCollapsedPersonas(prev => {
+      const next = new Set(prev)
+      if (next.has(personaId)) next.delete(personaId)
+      else next.add(personaId)
+      return next
+    })
+  }
+
+  const deleteConversation = (id: string) => {
+    setConversations(prev => {
+      const next = prev.filter(c => c.id !== id)
+      if (id === currentId) {
+        if (next.length > 0) setCurrentId(next[0].id)
+        else {
+          const fresh: Conversation = { ...createConversation(), personaId: 'default' }
+          setCurrentId(fresh.id)
+          return [fresh]
+        }
+      }
+      return next
+    })
+  }
+
+  const switchConversation = (id: string) => {
+    setCurrentId(id)
+    setAnimatedIds(new Set())
+    setInput('')
+    setViewingPersona(null)
+    setViewingSpace(false)
+  }
+
+  const startEditing = (id: string, title: string) => {
+    setEditingId(id)
+    setEditingTitle(title)
+  }
+
+  const saveTitle = () => {
+    if (!editingId) return
+    const trimmed = editingTitle.trim()
+    if (trimmed) {
+      setConversations(prev => prev.map(c =>
+        c.id === editingId ? { ...c, title: trimmed } : c
+      ))
+    }
+    setEditingId(null)
+  }
+
+  const updateCurrentMessages = (newMessages: Conversation['messages']) => {
+    setConversations(prev => prev.map(c => {
+      if (c.id !== currentId) return c
+      return {
+        ...c,
+        messages: newMessages,
+        title: editingId === currentId ? c.title : getTitleFromMessages(newMessages),
+        updatedAt: Date.now(),
+      }
+    }))
+  }
+
+  const addMemoryItem = () => {
+    const trimmed = newMemoryInput.trim()
+    if (!trimmed) return
+    setMemoryItems(prev => [...prev, createMemoryItem(trimmed)])
+    setNewMemoryInput('')
+  }
+
+  const deleteMemoryItem = (id: string) => {
+    setMemoryItems(prev => prev.filter(m => m.id !== id))
+  }
+
+  const setConversationPersona = (conversationId: string, personaId: string) => {
+    setConversations(prev => prev.map(c =>
+      c.id === conversationId ? { ...c, personaId } : c
+    ))
+  }
+
+  const cycleTheme = () => {
+    const idx = themeOrder.indexOf(themeKey)
+    const next = themeOrder[(idx + 1) % themeOrder.length]
+    setThemeKey(next)
+    localStorage.setItem('theme', next)
+  }
+
+  const allPersonas = [...BUILT_IN_PERSONAS, ...customPersonas]
+
+  const getEffectiveSystemPrompt = (personaId: string) => {
+    if (personaId === 'default') return personaOverrides['default'] || DEFAULT_PROMPT
+    return personaOverrides[personaId] ?? allPersonas.find(p => p.id === personaId)?.systemPrompt ?? ''
+  }
+
+  const openSettings = (personaId = 'default') => {
+    setEditingPersonaId(personaId)
+    setSystemPromptDraft(personaId === '__new__' ? DEFAULT_PROMPT : getEffectiveSystemPrompt(personaId))
+    setNewPersonaName('')
+    setShowSettings(true)
+    setShowMenu(false)
+  }
+
+  const saveSettings = () => {
+    if (editingPersonaId === '__new__') {
+      if (!newPersonaName.trim()) return
+      const id = `custom-${Date.now()}`
+      const p: Persona = { id, name: newPersonaName.trim(), color: '#9a9a9a', description: '', systemPrompt: systemPromptDraft }
+      const next = [...customPersonas, p]
+      setCustomPersonas(next)
+      localStorage.setItem('custom-personas', JSON.stringify(next))
+    } else {
+      const next = { ...personaOverrides, [editingPersonaId]: systemPromptDraft }
+      setPersonaOverrides(next)
+      localStorage.setItem('persona-prompts', JSON.stringify(next))
+      if (editingPersonaId === 'default') {
+        setSystemPrompt(systemPromptDraft)
+        localStorage.setItem('system-prompt', systemPromptDraft)
+      }
+    }
+    setShowSettings(false)
+  }
+
+  const SUMMARY_THRESHOLD = 10
+  const KEEP_RECENT = 4
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return
+
+    const userMessage = { role: 'user' as const, content: input }
+    const newMessages = [...messages, userMessage]
+    updateCurrentMessages(newMessages)
+    setAnimatedIds(prev => new Set(prev).add(newMessages.length - 1))
+    setInput('')
+    if (inputRef.current) inputRef.current.style.height = 'auto'
+    setLoading(true)
+
+    const memoryPrompt = buildMemoryPrompt(memoryItems)
+    const currentPersonaId = currentConversation?.personaId ?? 'default'
+    const personaSystemPrompt = getEffectiveSystemPrompt(currentPersonaId)
+    const fullSystemPrompt = [memoryPrompt, personaSystemPrompt].filter(Boolean).join('\n\n')
+    const currentPersonaName = currentPersonaId === 'default' ? null : (getPersonaById(currentPersonaId)?.name ?? null)
+
+    // ── 摘要压缩 ──────────────────────────────────────────────
+    let summary = currentConversation?.summary ?? ''
+    let summarizedCount = currentConversation?.summarizedCount ?? 0
+    const unsummarized = newMessages.length - summarizedCount
+
+    if (unsummarized > SUMMARY_THRESHOLD) {
+      const endIdx = newMessages.length - KEEP_RECENT
+      const toSummarize = newMessages.slice(summarizedCount, endIdx)
+
+      if (toSummarize.length > 0) {
+        const msgText = toSummarize
+          .map(m => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
+          .join('\n')
+        const summaryUserContent = summary
+          ? `以下是之前对话的摘要：\n${summary}\n\n以下是新增对话内容，请把上述摘要和新内容重新总结成一段简洁的新摘要，保留关键信息、决定和情绪基调，去掉口语化重复：\n${msgText}`
+          : `请把以下对话内容压缩成一段简洁摘要，保留关键信息、决定和情绪基调，去掉口语化重复：\n${msgText}`
+
+        try {
+          const summaryRes = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [{ role: 'user', content: summaryUserContent }],
+              systemPrompt: '你是一个对话摘要助手，只输出摘要内容，不加任何额外说明或标题。',
+              ...getApiConfigForRequest(),
+            }),
+          })
+          const newSummaryText = await streamToString(summaryRes)
+          if (newSummaryText) {
+            summary = newSummaryText
+            summarizedCount = endIdx
+            setConversations(prev => prev.map(c =>
+              c.id === currentId ? { ...c, summary, summarizedCount } : c
+            ))
+          }
+        } catch (e) {
+          console.error('Summary error:', e)
+        }
+      }
+    }
+
+    // ── 组装发给主 API 的消息 ─────────────────────────────────
+    const recentMessages = newMessages.slice(summarizedCount)
+    const messagesForAPI = summary
+      ? [
+          { role: 'user' as const, content: `以下是我们之前对话的摘要：\n${summary}` },
+          { role: 'assistant' as const, content: '好的，我已了解之前对话的内容。' },
+          ...recentMessages,
+        ]
+      : recentMessages
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: messagesForAPI,
+          systemPrompt: fullSystemPrompt || undefined,
+          personaName: currentPersonaName ?? undefined,
+          ...getApiConfigForRequest(),
+        }),
+      })
+
+      if (!res.ok) {
+        let errContent = '请检查 API 配置'
+        try { const j = await res.json(); if (j.error) errContent = j.error } catch {}
+        setConversations(prev => prev.map(c => c.id === currentId
+          ? { ...c, messages: [...newMessages, { role: 'assistant' as const, content: errContent }], updatedAt: Date.now() }
+          : c
+        ))
+        setLoading(false)
+        return
+      }
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let assistantContent = ''
+      let displayedContent = ''
+      let assistantAdded = false
+
+      const typeChars = (target: string, current: string, base: typeof newMessages) => {
+        if (typewriterRef.current.timer) clearTimeout(typewriterRef.current.timer)
+        let i = current.length
+        const tick = () => {
+          if (i < target.length) {
+            const next = target.slice(0, i + 1)
+            updateCurrentMessages([...base, { role: 'assistant', content: next }])
+            i++
+            typewriterRef.current.timer = setTimeout(tick, 15)
+          }
+        }
+        tick()
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value)
+        const lines = chunk.split('\n').filter(l => l.startsWith('data: '))
+        for (const line of lines) {
+          const data = line.slice(6)
+          if (data === '[DONE]') break
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta?.content ?? ''
+            if (delta) {
+              if (!assistantAdded) {
+                updateCurrentMessages([...newMessages, { role: 'assistant', content: '' }])
+                setAnimatedIds(prev => new Set(prev).add(newMessages.length))
+                assistantAdded = true
+              }
+              assistantContent += delta
+              typeChars(assistantContent, displayedContent, newMessages)
+              displayedContent = assistantContent
+            }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!mounted) return null
+
+  return (
+    <div
+      className="flex h-screen relative"
+      style={{
+        backgroundColor: t.bg,
+        color: t.assistantText,
+        backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E")`,
+        backgroundSize: '200px 200px',
+        transition: 'background-color 0.4s ease, color 0.4s ease, opacity 0.4s ease',
+        opacity: transitioning ? 0 : 1,
+      }}
+    >
+      <style>{`
+        @keyframes bubbleIn {
+          0% { opacity: 0; transform: translateY(8px) scale(0.97); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .bubble-animate {
+          animation: bubbleIn 0.22s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+        }
+        .sidebar-item:hover .delete-btn { opacity: 1; }
+        @keyframes menuIn {
+          0% { opacity: 0; transform: translateY(6px) scale(0.97); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .menu-animate {
+          animation: menuIn 0.15s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+        }
+        /* Mobile sidebar overlay */
+        .sidebar-container {
+          position: fixed; top: 0; left: 0; height: 100%;
+          width: 17rem; max-width: 82vw; z-index: 40;
+          display: flex; flex-direction: column;
+          transform: translateX(-100%);
+          transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .sidebar-container.sidebar-open { transform: translateX(0); }
+        @media (min-width: 640px) {
+          .sidebar-container {
+            position: relative; transform: none; transition: none;
+            width: 18rem; flex-shrink: 0; height: 100%; z-index: auto;
+          }
+          .sidebar-container.sidebar-closed { display: none; }
+        }
+        @media (max-width: 639px) {
+          .chat-bubble { max-width: 85% !important; }
+          .input-hint { display: none; }
+          .chat-input-area { padding: 0 12px 16px; }
+        }
+      `}</style>
+
+      {/* 晨雾雨天视频背景 */}
+      {themeKey === 'morning' && (
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ zIndex: 0, opacity: 0.3 }}
+        >
+          <source src="/rain.mp4" type="video/mp4" />
+        </video>
+      )}
+
+      <div className="relative flex w-full h-full" style={{ zIndex: 1 }}>
+
+        {/* 移动端遮罩 */}
+        {isMobile && sidebarOpen && (
+          <div
+            className="fixed inset-0"
+            style={{ background: 'rgba(0,0,0,0.35)', zIndex: 39 }}
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        {/* 侧边栏 */}
+        <div
+          className={`sidebar-container${sidebarOpen ? ' sidebar-open' : ' sidebar-closed'}`}
+          style={{
+            background: t.headerBg,
+            backdropFilter: 'blur(12px)',
+            borderRight: `1px solid ${t.headerBorder}`,
+          }}
+        >
+            {/* ── 每日信息 + 空间入口 ── */}
+            <div className="px-3 pt-3 pb-2 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+              {/* 每日信息卡片 */}
+              <div
+                className="rounded-xl px-3 py-2.5 mb-2"
+                style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}` }}
+              >
+                {sidebarWeather ? (
+                  <div className="flex items-baseline gap-2 mb-1.5">
+                    <span className="text-sm font-semibold" style={{ color: t.settingsText }}>{sidebarWeather.temp}°C</span>
+                    <span className="text-xs" style={{ color: t.settingsSubText }}>{getClothingAdvice(sidebarWeather.temp)}</span>
+                  </div>
+                ) : (
+                  <div className="text-xs mb-1.5" style={{ color: t.settingsSubText }}>天气加载中…</div>
+                )}
+                <div className="text-xs leading-relaxed" style={{ color: t.settingsSubText }}>
+                  {dailyQuote || '…'}
+                </div>
+              </div>
+              {/* 分割线 */}
+              <div style={{ borderTop: `1px solid ${t.headerBorder}`, margin: '6px 0' }} />
+              {/* 空间入口 */}
+              <button
+                className="w-full flex items-center justify-between px-1 py-1 rounded-lg transition-opacity hover:opacity-70"
+                onClick={() => { setViewingSpace(true); setViewingPersona(null); closeSidebarOnMobile() }}
+                style={{ background: viewingSpace ? t.userBubble : 'transparent' }}
+              >
+                <span className="text-base font-semibold" style={{ color: viewingSpace ? t.headerText : t.settingsSubText }}>空间</span>
+                <span className="text-sm font-semibold" style={{ color: t.settingsSubText }}>›</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-2">
+              {/* 好友分组标题 */}
+              <div className="px-4 pt-2 pb-1">
+                <span className="text-base font-semibold" style={{ color: t.settingsSubText }}>好友</span>
+              </div>
+              {allPersonas.map(persona => {
+                const group = conversations
+                  .filter(c => persona.id === 'default'
+                    ? !c.personaId || c.personaId === 'default'
+                    : c.personaId === persona.id
+                  )
+                  .sort((a, b) => b.updatedAt - a.updatedAt)
+                const isCollapsed = collapsedPersonas.has(persona.id)
+                return (
+                  <div key={persona.id} className="mb-2">
+                    {/* 角色分组标题行 */}
+                    <div className="flex items-center gap-1 px-3 py-2">
+                      <button
+                        className="flex items-center gap-2 flex-1 min-w-0 transition-opacity hover:opacity-70"
+                        onClick={() => { setViewingPersona(persona); closeSidebarOnMobile() }}
+                      >
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: persona.color }} />
+                        <span className="text-sm font-semibold flex-1 text-left truncate" style={{ color: t.headerText }}>{persona.name}</span>
+                      </button>
+                      <button
+                        className="shrink-0 w-8 h-8 flex items-center justify-center rounded-md transition-opacity hover:opacity-70 text-base font-semibold"
+                        style={{ color: t.settingsSubText }}
+                        onClick={() => { newConversationForPersona(persona.id); closeSidebarOnMobile() }}
+                        title={`新建 ${persona.name} 对话`}
+                      >
+                        +
+                      </button>
+                      <button
+                        className="shrink-0 w-8 h-8 flex items-center justify-center transition-opacity hover:opacity-70"
+                        onClick={() => togglePersonaCollapse(persona.id)}
+                        title={isCollapsed ? '展开' : '折叠'}
+                      >
+                        <span className="text-sm font-semibold" style={{ color: t.settingsSubText }}>{isCollapsed ? '▸' : '▾'}</span>
+                      </button>
+                    </div>
+                    {!isCollapsed && (
+                      <div className="pb-1">
+                        {group.map(c => (
+                          <div
+                            key={c.id}
+                            className="sidebar-item flex items-center justify-between px-3 py-2.5 mx-2 rounded-lg cursor-pointer"
+                            style={{
+                              background: c.id === currentId ? t.userBubble : 'transparent',
+                              transition: 'background 0.15s ease',
+                            }}
+                            onClick={() => { if (editingId !== c.id) { switchConversation(c.id); closeSidebarOnMobile() } }}
+                          >
+                            {editingId === c.id ? (
+                              <input
+                                ref={editInputRef}
+                                className="flex-1 text-sm bg-transparent outline-none border-b"
+                                style={{ color: t.headerText, borderColor: t.headerBorder }}
+                                value={editingTitle}
+                                onChange={e => setEditingTitle(e.target.value)}
+                                onBlur={saveTitle}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') saveTitle()
+                                  if (e.key === 'Escape') setEditingId(null)
+                                }}
+                                onClick={e => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span
+                                className="text-sm truncate flex-1"
+                                style={{ color: c.id === currentId ? t.headerText : t.buttonText }}
+                                onDoubleClick={e => { e.stopPropagation(); startEditing(c.id, c.title) }}
+                              >
+                                {c.title}
+                              </span>
+                            )}
+                            <button
+                              className="delete-btn text-sm ml-2 opacity-0 transition-opacity shrink-0"
+                              style={{ color: t.buttonText }}
+                              onClick={e => { e.stopPropagation(); deleteConversation(c.id) }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div
+              className="px-3 py-3 relative"
+              style={{ borderTop: `1px solid ${t.headerBorder}` }}
+              ref={menuRef}
+            >
+              {showMenu && (
+                <div
+                  className="absolute bottom-14 left-3 right-3 rounded-xl overflow-hidden menu-animate"
+                  style={{
+                    background: t.settingsBg,
+                    backdropFilter: 'blur(16px)',
+                    border: `1px solid ${t.headerBorder}`,
+                    boxShadow: t.inputShadow,
+                  }}
+                >
+                  <button
+                    onClick={cycleTheme}
+                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                  >
+                    主题：{t.name}
+                  </button>
+                  <button
+                    onClick={() => openSettings()}
+                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                  >
+                    System Prompt 设置
+                  </button>
+                  <button
+                    onClick={() => { setShowMemory(true); setShowMenu(false) }}
+                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                  >
+                    记忆库 {memoryItems.length > 0 && `(${memoryItems.length})`}
+                  </button>
+                  <button
+                    onClick={() => { setApiDraft({ ...DEFAULT_API_DRAFT }); setApiTestStatus('idle'); setModelList([]); setShowApiSettings(true); setShowMenu(false) }}
+                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                  >
+                    API 设置{activeConfigName ? ` · ${activeConfigName}` : ''}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const next = !devMode
+                      setDevMode(next)
+                      localStorage.setItem('dev-mode', next ? 'true' : 'false')
+                      setShowMenu(false)
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                  >
+                    开发者模式：{devMode ? '开启 ✓' : '关闭'}
+                  </button>
+                  {messages.length > 0 && (
+                    <button
+                      onClick={() => { updateCurrentMessages([]); setShowMenu(false) }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                      style={{ color: t.settingsText }}
+                    >
+                      清空当前对话
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={() => setShowMenu(p => !p)}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-opacity hover:opacity-70"
+                style={{
+                  background: showMenu ? t.userBubble : 'transparent',
+                  color: t.buttonText,
+                  border: `1px solid ${showMenu ? t.userBubbleBorder : 'transparent'}`,
+                }}
+              >
+                <span>⚙</span>
+                <span>工具</span>
+              </button>
+            </div>
+          </div>
+
+        {/* 主区域 */}
+        <div className="flex flex-col flex-1 min-w-0">
+          <div
+            className="flex items-center gap-3 px-4 py-3 shrink-0"
+            style={{
+              borderBottom: `1px solid ${t.headerBorder}`,
+              background: t.headerBg,
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <button
+              onClick={() => setSidebarOpen(p => !p)}
+              className="text-xs transition-colors shrink-0"
+              style={{ color: t.buttonText }}
+              onMouseEnter={e => (e.currentTarget.style.color = t.buttonHover)}
+              onMouseLeave={e => (e.currentTarget.style.color = t.buttonText)}
+            >
+              ☰
+            </button>
+            <span className="text-xl font-semibold flex-1 text-center" style={{ color: t.headerText }}>
+              {(() => {
+                if (viewingSpace) return '动态'
+                if (viewingPersona) return viewingPersona.name
+                const pid = currentConversation?.personaId ?? 'default'
+                if (pid === 'default') return 'Claude'
+                return getPersonaById(pid)?.name ?? 'Claude'
+              })()}
+            </span>
+            <button
+              onClick={handleGoHome}
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
+              style={{ color: t.buttonText }}
+              onMouseEnter={e => (e.currentTarget.style.color = t.buttonHover)}
+              onMouseLeave={e => (e.currentTarget.style.color = t.buttonText)}
+              title="返回首页"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </button>
+          </div>
+
+          {viewingSpace ? (
+            /* ===== 空间动态页 ===== */
+            <div className="flex-1 overflow-y-auto px-4 py-6">
+              <div className="max-w-xl mx-auto flex flex-col gap-4">
+                {/* 发布输入框 */}
+                <div
+                  className="rounded-2xl px-4 py-3"
+                  style={{ background: t.inputBg, backdropFilter: 'blur(12px)', border: `1px solid ${t.inputBorder}`, boxShadow: t.inputShadow }}
+                >
+                  {/* 可见范围循环切换 */}
+                  <div className="flex items-center gap-2 pb-2.5 mb-2.5" style={{ borderBottom: `1px solid ${t.settingsInputBorder}` }}>
+                    <span className="text-xs font-medium shrink-0" style={{ color: t.settingsSubText }}>发给</span>
+                    <button
+                      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs transition-opacity hover:opacity-70"
+                      style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+                      onClick={cycleSpaceVisibility}
+                    >
+                      {spaceVisiblePersonaId === null ? (
+                        <>
+                          {SPACE_PERSONAS.map(p => <div key={p.id} className="w-2 h-2 rounded-full" style={{ background: p.color }} />)}
+                          <span>全部可见</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-2 h-2 rounded-full" style={{ background: SPACE_PERSONAS.find(p => p.id === spaceVisiblePersonaId)?.color }} />
+                          <span>仅 {SPACE_PERSONAS.find(p => p.id === spaceVisiblePersonaId)?.name} 可见</span>
+                        </>
+                      )}
+                      <span style={{ opacity: 0.5 }}>⇌</span>
+                    </button>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      ref={composeRef}
+                      className="flex-1 bg-transparent resize-none outline-none text-sm"
+                      style={{ color: t.inputText, maxHeight: '160px', overflowY: 'auto' }}
+                      placeholder="有什么想说的…"
+                      rows={1}
+                      value={draftContent}
+                      onChange={e => {
+                        setDraftContent(e.target.value)
+                        e.target.style.height = 'auto'
+                        e.target.style.height = `${e.target.scrollHeight}px`
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); publishPost() }
+                      }}
+                    />
+                    <button
+                      onClick={publishPost}
+                      disabled={!draftContent.trim()}
+                      className="transition-opacity disabled:opacity-30 shrink-0"
+                      style={{ color: t.sendButton, fontSize: '18px', lineHeight: 1 }}
+                    >↑</button>
+                  </div>
+                </div>
+                <p className="text-center text-xs -mt-2" style={{ color: t.footerText }}>按 Enter 发布，Shift+Enter 换行</p>
+
+                {/* 动态列表 */}
+                {posts.length === 0 ? (
+                  <div className="flex items-center justify-center py-20">
+                    <span className="text-sm" style={{ color: t.settingsSubText }}>还没有动态，写点什么吧</span>
+                  </div>
+                ) : posts.map(post => {
+                  const visiblePersonas = SPACE_PERSONAS.filter(p => post.visibleTo.includes(p.id))
+                  const isGenerating = generatingFor.has(post.id)
+                  return (
+                    <div key={post.id} className="rounded-2xl p-4" style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', border: `1px solid ${t.headerBorder}` }}>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap mb-3" style={{ color: t.settingsText }}>{post.content}</p>
+                      <div className="flex items-center gap-3 mb-3">
+                        <span className="text-xs" style={{ color: t.settingsSubText }}>{formatPostTime(post.createdAt)}</span>
+                        {visiblePersonas.length > 0 && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs" style={{ color: t.settingsSubText }}>对</span>
+                            {visiblePersonas.map(p => <div key={p.id} className="w-2 h-2 rounded-full" title={p.name} style={{ background: p.color }} />)}
+                            <span className="text-xs" style={{ color: t.settingsSubText }}>{visiblePersonas.map(p => p.name).join('、')} 可见</span>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ borderTop: `1px solid ${t.settingsInputBorder}`, paddingTop: '12px' }}>
+                        {post.comments.length === 0 && !isGenerating && (
+                          <span className="text-xs" style={{ color: t.settingsSubText }}>暂无评论</span>
+                        )}
+                        {post.comments.map((c, i) => {
+                          const persona = BUILT_IN_PERSONAS.find(p => p.id === c.personaId)
+                          const userReplyCount = (c.replies ?? []).filter(r => r.author === 'user').length
+                          const canReply = userReplyCount < 2
+                          const isReplying = replyingTo?.postId === post.id && replyingTo?.commentIdx === i
+                          const replyKey = `${post.id}-${i}`
+                          const isGeneratingReply = generatingReplyFor.has(replyKey)
+                          return (
+                            <div key={i} className="flex gap-2.5 mb-3 last:mb-0">
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5" style={{ background: persona?.color ?? '#999', color: '#fff' }}>
+                                {persona?.name[0] ?? '?'}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2 mb-0.5">
+                                  <span className="text-xs font-semibold" style={{ color: t.settingsText }}>{persona?.name ?? c.personaId}</span>
+                                  <span className="text-xs" style={{ color: t.settingsSubText }}>{formatPostTime(c.createdAt)}</span>
+                                </div>
+                                <p className="text-sm leading-relaxed" style={{ color: t.settingsText }}>{c.content}</p>
+                                {/* 嵌套回复 */}
+                                {(c.replies ?? []).length > 0 && (
+                                  <div className="mt-2 pl-3" style={{ borderLeft: `2px solid ${t.settingsInputBorder}` }}>
+                                    {(c.replies ?? []).map((r, ri) => {
+                                      const isUser = r.author === 'user'
+                                      const replyPersona = isUser ? null : BUILT_IN_PERSONAS.find(p => p.id === r.author)
+                                      return (
+                                        <div key={ri} className="mb-1.5 last:mb-0 text-xs leading-relaxed" style={{ color: t.settingsText }}>
+                                          <span className="font-semibold mr-1" style={{ color: isUser ? t.userBubble : (replyPersona?.color ?? t.settingsText) }}>
+                                            {isUser ? '我' : (replyPersona?.name ?? r.author)}：
+                                          </span>
+                                          {r.content}
+                                        </div>
+                                      )
+                                    })}
+                                    {isGeneratingReply && (
+                                      <div className="flex gap-0.5 mt-1" style={{ color: t.settingsSubText }}>
+                                        <span className="animate-bounce" style={{ animationDelay: '0ms' }}>·</span>
+                                        <span className="animate-bounce" style={{ animationDelay: '150ms' }}>·</span>
+                                        <span className="animate-bounce" style={{ animationDelay: '300ms' }}>·</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                {/* 回复按钮 / 输入框 */}
+                                {!isReplying && canReply && !isGeneratingReply && (
+                                  <button
+                                    onClick={() => { setReplyingTo({ postId: post.id, commentIdx: i }); setReplyDraft('') }}
+                                    className="mt-1.5 text-xs transition-opacity hover:opacity-70"
+                                    style={{ color: t.settingsSubText }}
+                                  >
+                                    回复
+                                  </button>
+                                )}
+                                {isReplying && (
+                                  <div className="mt-2 flex gap-2 items-end">
+                                    <textarea
+                                      value={replyDraft}
+                                      onChange={e => setReplyDraft(e.target.value)}
+                                      placeholder="回复…"
+                                      rows={1}
+                                      className="flex-1 text-xs rounded-lg px-2.5 py-1.5 resize-none leading-relaxed outline-none"
+                                      style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText, minHeight: '30px', maxHeight: '72px' }}
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitReply(post.id, i, c, post.content) }
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => submitReply(post.id, i, c, post.content)}
+                                      className="text-xs px-2.5 py-1.5 rounded-lg font-medium shrink-0"
+                                      style={{ background: t.userBubble, color: '#fff' }}
+                                    >
+                                      发送
+                                    </button>
+                                    <button
+                                      onClick={() => setReplyingTo(null)}
+                                      className="text-xs py-1.5 shrink-0 transition-opacity hover:opacity-70"
+                                      style={{ color: t.settingsSubText }}
+                                    >
+                                      取消
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                        {isGenerating && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <div className="flex gap-1" style={{ color: t.settingsSubText }}>
+                              <span className="animate-bounce" style={{ animationDelay: '0ms' }}>·</span>
+                              <span className="animate-bounce" style={{ animationDelay: '150ms' }}>·</span>
+                              <span className="animate-bounce" style={{ animationDelay: '300ms' }}>·</span>
+                            </div>
+                            <span className="text-xs" style={{ color: t.settingsSubText }}>
+                              {SPACE_PERSONAS.filter(p => post.visibleTo.includes(p.id)).filter(p => !post.comments.find(c => c.personaId === p.id)).map(p => p.name).join('、')} 正在评论
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : viewingPersona ? (
+            /* ===== 角色资料页 ===== */
+            <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-4">
+              {/* 个人资料卡片 */}
+              <div
+                className="rounded-2xl px-6 pt-6 pb-8 flex flex-col gap-5"
+                style={{
+                  background: t.settingsBg,
+                  backdropFilter: 'blur(16px)',
+                  border: `1px solid ${t.headerBorder}`,
+                }}
+              >
+                {/* 头像 */}
+                <div
+                  className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold shadow-lg"
+                  style={{ background: viewingPersona.color, color: '#fff' }}
+                >
+                  {viewingPersona.name[0]}
+                </div>
+                {/* 姓名 + 基础信息 */}
+                <div>
+                  <div className="text-xl font-semibold" style={{ color: t.settingsText }}>{viewingPersona.name}</div>
+                  {(viewingPersona.profile?.gender || viewingPersona.profile?.age || viewingPersona.profile?.constellation) && (
+                    <div className="mt-1 text-sm" style={{ color: t.settingsSubText }}>
+                      {[
+                        viewingPersona.profile?.gender,
+                        viewingPersona.profile?.age ? `${viewingPersona.profile.age}岁` : undefined,
+                        viewingPersona.profile?.constellation,
+                      ].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
+                </div>
+                {/* 备注 */}
+                <div className="flex items-center gap-6 text-sm">
+                  <span style={{ color: t.settingsSubText }}>备注</span>
+                  <span style={{ color: t.settingsText }}>{viewingPersona.profile?.note ?? '慧妍'}</span>
+                </div>
+                {/* 分割线 */}
+                <div style={{ borderTop: `1px solid ${t.settingsInputBorder}` }} />
+                {/* 个性签名 */}
+                {viewingPersona.profile?.signature && (
+                  <p className="text-sm" style={{ color: t.settingsSubText }}>
+                    {viewingPersona.profile.signature}
+                  </p>
+                )}
+                {/* 简介 */}
+                <div>
+                  <div className="text-xs font-medium mb-1.5" style={{ color: t.settingsSubText }}>简介</div>
+                  <div className="text-sm leading-relaxed" style={{ color: t.settingsText }}>{viewingPersona.description}</div>
+                </div>
+                {/* 标签 */}
+                {viewingPersona.profile?.tags && viewingPersona.profile.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {viewingPersona.profile.tags.map(tag => (
+                      <span
+                        key={tag}
+                        className="text-xs px-3 py-1.5 rounded-full"
+                        style={{
+                          background: `${viewingPersona.color}25`,
+                          color: t.settingsText,
+                          border: `1px solid ${viewingPersona.color}55`,
+                        }}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {/* 操作按钮 */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-80"
+                    style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+                    onClick={() => {
+                      const vp = viewingPersona
+                      const latest = conversations
+                        .filter(c => vp.id === 'default' ? !c.personaId || c.personaId === 'default' : c.personaId === vp.id)
+                        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+                      if (latest) switchConversation(latest.id)
+                      else newConversationForPersona(vp.id)
+                    }}
+                  >
+                    发消息
+                  </button>
+                  <button
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-80"
+                    style={{ background: t.saveButton, color: t.saveButtonText }}
+                    onClick={() => newConversationForPersona(viewingPersona.id)}
+                  >
+                    新建对话
+                  </button>
+                </div>
+              </div>
+              {/* 动态卡片 */}
+              <div
+                className="rounded-2xl px-6 py-5 flex flex-col gap-4"
+                style={{
+                  background: t.settingsBg,
+                  backdropFilter: 'blur(16px)',
+                  border: `1px solid ${t.headerBorder}`,
+                }}
+              >
+                <div className="text-xs font-medium" style={{ color: t.settingsSubText }}>动态</div>
+                <div className="py-8 flex items-center justify-center">
+                  <span className="text-sm" style={{ color: t.settingsSubText }}>暂无动态</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* 消息列表 */}
+              <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+                {messages.length === 0 && (
+                  <div className="text-center mt-20 text-sm" style={{ color: t.emptyText }}>开始对话吧</div>
+                )}
+                {messages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`flex ${msg.role === 'user' ? 'justify-end pr-4' : 'justify-start pl-4'} ${animatedIds.has(i) ? 'bubble-animate' : ''}`}
+                  >
+                    <div
+                      className="chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                      style={msg.role === 'user'
+                        ? { background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)' }
+                        : { background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)' }
+                      }
+                    >
+                      {msg.role === 'user' ? msg.content : (
+                        <ReactMarkdown
+                          components={{
+                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                            code: ({ children, className }) => {
+                              const isBlock = className?.includes('language-')
+                              const language = className?.replace('language-', '') ?? 'text'
+                              if (isBlock) {
+                                const { Prism: SyntaxHighlighter } = require('react-syntax-highlighter')
+                                const { oneDark } = require('react-syntax-highlighter/dist/cjs/styles/prism')
+                                return (
+                                  <SyntaxHighlighter
+                                    language={language}
+                                    style={oneDark}
+                                    customStyle={{ borderRadius: '8px', fontSize: '12px', margin: '8px 0', background: t.codeBg }}
+                                  >
+                                    {String(children).replace(/\n$/, '')}
+                                  </SyntaxHighlighter>
+                                )
+                              }
+                              return (
+                                <code className="rounded px-1 py-0.5 text-xs" style={{ background: t.codeBg, color: t.codeText }}>{children}</code>
+                              )
+                            },
+                            ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                            li: ({ children }) => <li>{children}</li>,
+                            strong: ({ children }) => <strong className="font-semibold" style={{ color: t.strongText }}>{children}</strong>,
+                            h1: ({ children }) => <h1 className="text-base font-semibold mb-2" style={{ color: t.strongText }}>{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-sm font-semibold mb-2" style={{ color: t.strongText }}>{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-sm font-semibold mb-1" style={{ color: t.strongText }}>{children}</h3>,
+                          }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {loading && messages[messages.length - 1]?.role !== 'assistant' && (
+                  <div className="flex justify-start">
+                    <div className="text-sm px-4 py-3" style={{ color: t.emptyText }}>...</div>
+                  </div>
+                )}
+                <div ref={bottomRef} />
+              </div>
+              {/* 输入框 */}
+              <div className="chat-input-area px-4 pb-6 shrink-0">
+                <div
+                  className="flex items-end gap-2 rounded-2xl px-4 py-3"
+                  style={{
+                    background: t.inputBg,
+                    backdropFilter: 'blur(12px)',
+                    border: `1px solid ${t.inputBorder}`,
+                    boxShadow: t.inputShadow,
+                  }}
+                >
+                  <textarea
+                    ref={inputRef}
+                    className="flex-1 bg-transparent resize-none outline-none text-sm"
+                    style={{ color: t.inputText, maxHeight: '160px', overflowY: 'auto' }}
+                    placeholder={`给 ${currentConversation?.personaId && currentConversation.personaId !== 'default' ? (getPersonaById(currentConversation.personaId)?.name ?? 'Claude') : 'Claude'} 发送消息`}
+                    rows={1}
+                    value={input}
+                    onChange={e => {
+                      setInput(e.target.value)
+                      e.target.style.height = 'auto'
+                      e.target.style.height = `${e.target.scrollHeight}px`
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        sendMessage()
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={loading || !input.trim()}
+                    className="transition-opacity disabled:opacity-30"
+                    style={{ color: t.sendButton }}
+                  >
+                    ↑
+                  </button>
+                </div>
+                <p className="input-hint text-center text-xs mt-2" style={{ color: t.footerText }}>按 Enter 发送，Shift+Enter 换行</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* API 设置弹窗 */}
+      {showApiSettings && (() => {
+        const tempLabel = apiDraft.temperature <= 0.5 ? '保守' : apiDraft.temperature <= 1.5 ? '平衡' : '创新'
+        const draftNameExists = apiConfigs.some(c => c.name === apiDraft.name)
+
+        const saveConfig = () => {
+          if (!apiDraft.name.trim()) return
+          const next = draftNameExists
+            ? apiConfigs.map(c => c.name === apiDraft.name ? { ...apiDraft } : c)
+            : [...apiConfigs, { ...apiDraft }]
+          setApiConfigs(next)
+          localStorage.setItem(API_CONFIGS_KEY, JSON.stringify(next))
+        }
+
+        const applyConfig = (name: string) => {
+          setActiveConfigName(name)
+          localStorage.setItem(ACTIVE_CONFIG_KEY, name)
+        }
+
+        const deleteConfig = (name: string) => {
+          const next = apiConfigs.filter(c => c.name !== name)
+          setApiConfigs(next)
+          localStorage.setItem(API_CONFIGS_KEY, JSON.stringify(next))
+          if (activeConfigName === name) {
+            setActiveConfigName(null)
+            localStorage.removeItem(ACTIVE_CONFIG_KEY)
+          }
+        }
+
+        const testConnection = async () => {
+          setApiTestStatus('testing')
+          setApiTestMsg('')
+          try {
+            const cfg = apiDraft
+            const res = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                messages: [{ role: 'user', content: 'hi' }],
+                systemPrompt: '',
+                devMode: false,
+                apiConfig: {
+                  baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model,
+                  llmEndpoint: cfg.llmEndpoint, temperature: cfg.temperature,
+                },
+              }),
+            })
+            if (res.ok) {
+              const text = await streamToString(res)
+              setApiTestStatus(text ? 'ok' : 'fail')
+              setApiTestMsg(text ? '连接成功' : '响应为空')
+            } else {
+              const j = await res.json().catch(() => ({}))
+              setApiTestStatus('fail')
+              setApiTestMsg(j.error ?? `HTTP ${res.status}`)
+            }
+          } catch (e) { setApiTestStatus('fail'); setApiTestMsg(String(e)) }
+        }
+
+        const fetchModelList = async () => {
+          setFetchingModels(true)
+          try {
+            const base = apiDraft.baseUrl.replace(/\/$/, '')
+            const res = await fetch(`${base}${apiDraft.modelsEndpoint}`, {
+              headers: { 'Authorization': `Bearer ${apiDraft.apiKey}` },
+            })
+            const json = await res.json()
+            const list: string[] = (json.data ?? json.models ?? []).map((m: { id?: string; name?: string } | string) =>
+              typeof m === 'string' ? m : (m.id ?? m.name ?? '')
+            ).filter(Boolean)
+            setModelList(list)
+          } catch { setModelList([]) }
+          setFetchingModels(false)
+        }
+
+        const inp = (label: string, field: keyof ApiConfig, opts?: { placeholder?: string; mono?: boolean; type?: string }) => (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs" style={{ color: t.settingsSubText }}>{label}</label>
+            <input
+              type={opts?.type ?? 'text'}
+              className={`w-full rounded-lg px-3 py-1.5 text-xs outline-none${opts?.mono ? ' font-mono' : ''}`}
+              style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+              placeholder={opts?.placeholder ?? ''}
+              value={apiDraft[field] as string}
+              onChange={e => setApiDraft(p => ({ ...p, [field]: e.target.value }))}
+            />
+          </div>
+        )
+
+        return (
+          <div className="fixed inset-0 flex items-center justify-center z-10" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
+            <div className="rounded-2xl w-full mx-4 flex flex-col" style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', maxWidth: '520px', maxHeight: '90vh' }}>
+              {/* 标题 */}
+              <div className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+                <h2 className="text-sm font-medium" style={{ color: t.settingsText }}>API 设置</h2>
+                <div className="flex items-center gap-2">
+                  {activeConfigName && (
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#22c55e22', color: '#16a34a', border: '1px solid #22c55e55' }}>
+                      已应用：{activeConfigName}
+                    </span>
+                  )}
+                  <button onClick={() => setShowApiSettings(false)} className="text-xs transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>✕</button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4">
+                {/* 已保存配置列表 */}
+                {apiConfigs.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium mb-2" style={{ color: t.settingsSubText }}>已保存配置</div>
+                    <div className="flex flex-col gap-1.5">
+                      {apiConfigs.map(cfg => (
+                        <div key={cfg.name} className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: t.settingsInputBg, border: `1px solid ${cfg.name === activeConfigName ? '#22c55e88' : t.settingsInputBorder}` }}>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium" style={{ color: t.settingsText }}>{cfg.name}</span>
+                            <span className="text-xs ml-2" style={{ color: t.settingsSubText }}>{cfg.model || '未设模型'} · {cfg.baseUrl.replace(/https?:\/\//, '').slice(0, 24)}</span>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            <button onClick={() => applyConfig(cfg.name)} className="text-xs px-2 py-0.5 rounded-md transition-opacity hover:opacity-70" style={{ background: cfg.name === activeConfigName ? '#22c55e22' : t.settingsBg, color: cfg.name === activeConfigName ? '#16a34a' : t.settingsSubText, border: `1px solid ${cfg.name === activeConfigName ? '#22c55e55' : t.settingsInputBorder}` }}>
+                              {cfg.name === activeConfigName ? '已应用' : '应用'}
+                            </button>
+                            <button onClick={() => setApiDraft({ ...cfg })} className="text-xs px-2 py-0.5 rounded-md transition-opacity hover:opacity-70" style={{ color: t.settingsSubText, border: `1px solid ${t.settingsInputBorder}` }}>编辑</button>
+                            <button onClick={() => deleteConfig(cfg.name)} className="text-xs px-2 py-0.5 rounded-md transition-opacity hover:opacity-70" style={{ color: '#dc2626', border: '1px solid #dc262644' }}>删除</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ borderTop: `1px solid ${t.settingsInputBorder}`, margin: '12px 0 0' }} />
+                  </div>
+                )}
+
+                {/* 编辑器表单 */}
+                <div className="flex flex-col gap-3">
+                  <div className="text-xs font-medium" style={{ color: t.settingsSubText }}>
+                    {draftNameExists ? `编辑配置：${apiDraft.name}` : '新建配置'}
+                  </div>
+
+                  {inp('配置名称', 'name', { placeholder: '如 my-openrouter' })}
+                  {inp('API 地址 (Base URL)', 'baseUrl', { placeholder: 'https://openrouter.ai/api/v1' })}
+
+                  {/* API Key 带显示/隐藏 */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs" style={{ color: t.settingsSubText }}>API Key</label>
+                    <div className="flex gap-2">
+                      <input
+                        type={apiKeyVisible ? 'text' : 'password'}
+                        className="flex-1 rounded-lg px-3 py-1.5 text-xs outline-none font-mono"
+                        style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+                        placeholder="sk-..."
+                        value={apiDraft.apiKey}
+                        onChange={e => setApiDraft(p => ({ ...p, apiKey: e.target.value }))}
+                      />
+                      <button onClick={() => setApiKeyVisible(p => !p)} className="text-xs px-2.5 rounded-lg shrink-0 transition-opacity hover:opacity-70" style={{ background: t.settingsInputBg, color: t.settingsSubText, border: `1px solid ${t.settingsInputBorder}` }}>
+                        {apiKeyVisible ? '隐藏' : '显示'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 模型 */}
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs" style={{ color: t.settingsSubText }}>模型</label>
+                    <div className="flex gap-2">
+                      <input
+                        list="api-model-list"
+                        className="flex-1 rounded-lg px-3 py-1.5 text-xs outline-none"
+                        style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+                        placeholder="如 anthropic/claude-sonnet-4-6"
+                        value={apiDraft.model}
+                        onChange={e => setApiDraft(p => ({ ...p, model: e.target.value }))}
+                      />
+                      <datalist id="api-model-list">{modelList.map(m => <option key={m} value={m} />)}</datalist>
+                      <button onClick={fetchModelList} disabled={fetchingModels || !apiDraft.baseUrl || !apiDraft.apiKey} className="text-xs px-2.5 rounded-lg shrink-0 transition-opacity disabled:opacity-40 hover:opacity-70" style={{ background: t.settingsInputBg, color: t.settingsSubText, border: `1px solid ${t.settingsInputBorder}` }}>
+                        {fetchingModels ? '…' : '拉取列表'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 端点 */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {inp('LLM 端点', 'llmEndpoint', { placeholder: '/chat/completions' })}
+                    {inp('模型列表端点', 'modelsEndpoint', { placeholder: '/models' })}
+                  </div>
+
+                  {/* 温度滑块 */}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs" style={{ color: t.settingsSubText }}>温度</label>
+                      <span className="text-xs" style={{ color: t.settingsText }}>{apiDraft.temperature.toFixed(2)} <span style={{ color: t.settingsSubText }}>({tempLabel})</span></span>
+                    </div>
+                    <input
+                      type="range" min="0" max="2" step="0.01"
+                      value={apiDraft.temperature}
+                      onChange={e => setApiDraft(p => ({ ...p, temperature: parseFloat(e.target.value) }))}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs" style={{ color: t.settingsSubText }}>
+                      <span>0 保守</span><span>1 平衡</span><span>2 创新</span>
+                    </div>
+                  </div>
+
+                  {/* 测试结果 */}
+                  {apiTestStatus !== 'idle' && (
+                    <div className="text-xs px-3 py-2 rounded-lg" style={{
+                      background: apiTestStatus === 'ok' ? '#22c55e22' : apiTestStatus === 'fail' ? '#ef444422' : t.settingsInputBg,
+                      color: apiTestStatus === 'ok' ? '#16a34a' : apiTestStatus === 'fail' ? '#dc2626' : t.settingsSubText,
+                      border: `1px solid ${apiTestStatus === 'ok' ? '#22c55e55' : apiTestStatus === 'fail' ? '#ef444455' : t.settingsInputBorder}`,
+                    }}>
+                      {apiTestStatus === 'testing' ? '测试中…' : apiTestMsg}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 底栏 */}
+              <div className="flex items-center justify-between px-5 py-3 shrink-0" style={{ borderTop: `1px solid ${t.headerBorder}` }}>
+                <button
+                  onClick={testConnection}
+                  disabled={apiTestStatus === 'testing' || !apiDraft.baseUrl || !apiDraft.apiKey}
+                  className="text-xs rounded-lg px-3 py-2 transition-opacity disabled:opacity-40 hover:opacity-70"
+                  style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+                >
+                  测试连接
+                </button>
+                <div className="flex gap-2">
+                  <button onClick={() => { setApiDraft({ ...DEFAULT_API_DRAFT }); setApiTestStatus('idle'); setModelList([]) }} className="text-xs rounded-lg px-3 py-2 transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>
+                    新建
+                  </button>
+                  <button
+                    onClick={saveConfig}
+                    disabled={!apiDraft.name.trim() || !apiDraft.baseUrl || !apiDraft.apiKey}
+                    className="text-xs rounded-lg px-4 py-2 transition-opacity disabled:opacity-40"
+                    style={{ background: t.saveButton, color: t.saveButtonText }}
+                  >
+                    {draftNameExists ? '保存修改' : '保存新配置'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* 记忆库弹窗 */}
+      {showMemory && (
+        <div className="fixed inset-0 flex items-center justify-center z-10" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
+          <div className="rounded-2xl p-6 w-full max-w-lg mx-4 flex flex-col" style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', maxHeight: '70vh' }}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-medium" style={{ color: t.settingsText }}>记忆库</h2>
+              <span className="text-xs" style={{ color: t.settingsSubText }}>{memoryItems.length} 条记忆</span>
+            </div>
+            <p className="text-xs mb-4" style={{ color: t.settingsSubText }}>这里的内容会在每次对话时自动带给 Claude，跨对话生效。</p>
+            <div className="flex gap-2 mb-4">
+              <input
+                className="flex-1 rounded-xl px-3 py-2 text-xs outline-none"
+                style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+                placeholder="添加一条记忆"
+                value={newMemoryInput}
+                onChange={e => setNewMemoryInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addMemoryItem() }}
+              />
+              <button
+                onClick={addMemoryItem}
+                className="text-xs rounded-xl px-3 py-2"
+                style={{ background: t.saveButton, color: t.saveButtonText }}
+              >
+                添加
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {memoryItems.length === 0 && (
+                <p className="text-xs text-center py-4" style={{ color: t.settingsSubText }}>还没有记忆</p>
+              )}
+              {memoryItems.map(m => (
+                <div
+                  key={m.id}
+                  className="flex items-start justify-between gap-2 px-3 py-2 rounded-xl"
+                  style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}` }}
+                >
+                  <span className="text-xs flex-1" style={{ color: t.settingsText }}>{m.content}</span>
+                  <button onClick={() => deleteMemoryItem(m.id)} className="text-xs shrink-0" style={{ color: t.settingsSubText }}>×</button>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={() => setShowMemory(false)} className="text-xs rounded-lg px-4 py-2" style={{ background: t.saveButton, color: t.saveButtonText }}>完成</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 人设编辑器弹窗 */}
+      {showSettings && (
+        <div className="fixed inset-0 flex items-center justify-center z-10" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
+          <div
+            className="rounded-2xl w-full mx-4 flex flex-col"
+            style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', maxWidth: '680px', maxHeight: '85vh' }}
+          >
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+              <h2 className="text-sm font-medium" style={{ color: t.settingsText }}>人设编辑器</h2>
+              <button onClick={() => setShowSettings(false)} className="text-sm transition-opacity hover:opacity-60" style={{ color: t.settingsSubText }}>✕</button>
+            </div>
+
+            {/* 选择角色下拉 */}
+            <div className="px-6 py-3 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+              <select
+                className="w-full rounded-xl px-3 py-2 text-sm outline-none cursor-pointer"
+                style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}
+                value={editingPersonaId}
+                onChange={e => {
+                  const id = e.target.value
+                  setEditingPersonaId(id)
+                  setSystemPromptDraft(id === '__new__' ? DEFAULT_PROMPT : getEffectiveSystemPrompt(id))
+                  setNewPersonaName('')
+                }}
+              >
+                {allPersonas.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+                <option disabled>──────</option>
+                <option value="__new__">+ 创建新角色</option>
+              </select>
+              {editingPersonaId === '__new__' && (
+                <input
+                  className="w-full mt-2 rounded-xl px-3 py-2 text-sm outline-none"
+                  style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}
+                  placeholder="角色名称"
+                  value={newPersonaName}
+                  onChange={e => setNewPersonaName(e.target.value)}
+                />
+              )}
+            </div>
+
+            {/* 编辑区 */}
+            <div className="flex-1 min-h-0 p-4 flex flex-col">
+              <textarea
+                className="flex-1 w-full rounded-xl px-4 py-3 text-sm outline-none resize-none leading-relaxed"
+                style={{
+                  background: t.settingsInputBg,
+                  color: t.settingsText,
+                  border: `1px solid ${t.settingsInputBorder}`,
+                  minHeight: '320px',
+                }}
+                placeholder="在这里编写 System Prompt…"
+                value={systemPromptDraft}
+                onChange={e => setSystemPromptDraft(e.target.value)}
+              />
+              {systemPromptDraft.length > 0 && (
+                <p className="text-xs mt-2 text-right" style={{ color: t.settingsSubText }}>{systemPromptDraft.length} 字符</p>
+              )}
+            </div>
+
+            {/* 底部操作栏 */}
+            <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderTop: `1px solid ${t.headerBorder}` }}>
+              <button
+                className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-70"
+                style={{ color: t.settingsSubText, border: `1px solid ${t.headerBorder}` }}
+                onClick={() => setShowPreview(true)}
+              >
+                预览
+              </button>
+              <div className="flex gap-2">
+                <button onClick={() => setShowSettings(false)} className="text-xs px-4 py-2 transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>取消</button>
+                <button
+                  onClick={saveSettings}
+                  disabled={editingPersonaId === '__new__' && !newPersonaName.trim()}
+                  className="text-xs rounded-lg px-4 py-2 disabled:opacity-40"
+                  style={{ background: t.saveButton, color: t.saveButtonText }}
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 预览弹窗 */}
+      {showPreview && (
+        <div className="fixed inset-0 flex items-center justify-center z-20" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
+          <div
+            className="rounded-2xl w-full mx-4 flex flex-col"
+            style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', maxWidth: '600px', maxHeight: '75vh' }}
+          >
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+              <h2 className="text-sm font-medium" style={{ color: t.settingsText }}>System Prompt 预览</h2>
+              <button onClick={() => setShowPreview(false)} className="text-sm transition-opacity hover:opacity-60" style={{ color: t.settingsSubText }}>✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <pre className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: t.settingsText, fontFamily: 'inherit' }}>
+                {systemPromptDraft || '（空）'}
+              </pre>
+            </div>
+            <div className="px-6 py-4 flex justify-end shrink-0" style={{ borderTop: `1px solid ${t.headerBorder}` }}>
+              <button onClick={() => setShowPreview(false)} className="text-xs rounded-lg px-4 py-2" style={{ background: t.saveButton, color: t.saveButtonText }}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
