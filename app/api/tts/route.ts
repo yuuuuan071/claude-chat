@@ -1,6 +1,6 @@
 export async function POST(req: Request) {
   const { text, voice = 'male-qn-qingse' } = await req.json()
-  if (!text?.trim()) return Response.json({ error: 'text is required' }, { status: 400 })
+if (!text?.trim()) return Response.json({ error: 'text is required' }, { status: 400 })
 
   const apiKey = process.env.MINIMAX_API_KEY
   const groupId = process.env.MINIMAX_GROUP_ID
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   }
 
   const json = await upstream.json()
-  const hex: string = json?.data?.audio
+const hex: string = json?.data?.audio
   if (!hex) return Response.json({ error: 'no audio in response', detail: json }, { status: 502 })
 
   const buf = Buffer.from(hex, 'hex')

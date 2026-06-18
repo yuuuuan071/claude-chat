@@ -92,6 +92,7 @@ export default function ChatPage() {
   const [mounted, setMounted] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [playingMsgIdx, setPlayingMsgIdx] = useState<number | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showMemory, setShowMemory] = useState(false)
   const [showApiSettings, setShowApiSettings] = useState(false)
@@ -144,6 +145,7 @@ export default function ChatPage() {
   const composeRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const typewriterRef = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null })
@@ -488,6 +490,40 @@ export default function ChatPage() {
     setConversations(prev => prev.map(c =>
       c.id === conversationId ? { ...c, personaId } : c
     ))
+  }
+
+  const VOICE_MAP: Record<string, string> = {
+    'xieyan': 'Chinese (Mandarin)_Gentleman',
+    'shen-zhaoyang': 'Chinese (Mandarin)_Stubborn_Friend',
+    'default': 'male-qn-qingse',
+  }
+
+  const playTTS = async (idx: number, text: string) => {
+    if (playingMsgIdx === idx) {
+      ttsAudioRef.current?.pause()
+      setPlayingMsgIdx(null)
+      return
+    }
+    setPlayingMsgIdx(idx)
+    const personaId = currentConversation?.personaId ?? 'default'
+    const voice = VOICE_MAP[personaId] ?? 'male-qn-qingse'
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice }),
+      })
+      if (!res.ok) { setPlayingMsgIdx(null); return }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      ttsAudioRef.current = audio
+      audio.onended = () => { setPlayingMsgIdx(null); URL.revokeObjectURL(url) }
+      audio.onerror = () => { setPlayingMsgIdx(null); URL.revokeObjectURL(url) }
+      audio.play()
+    } catch {
+      setPlayingMsgIdx(null)
+    }
   }
 
   const cycleTheme = () => {
@@ -1541,9 +1577,20 @@ return (
                       )
                     })()}
                     {msg.timestamp && (
-                      <span style={{ fontSize: '0.62rem', color: t.timestampText, marginTop: '2px', paddingLeft: '4px', paddingRight: '4px' }}>
-                        {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      <div className="flex items-center gap-1" style={{ marginTop: '2px' }}>
+                        <span style={{ fontSize: '0.62rem', color: t.timestampText, paddingLeft: '4px', paddingRight: '4px' }}>
+                          {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        {msg.role === 'assistant' && (
+                          <button
+                            onClick={() => playTTS(i, msg.content.replace(/^<think>[\s\S]*?<\/think>\n?/, ''))}
+                            className="transition-opacity hover:opacity-100"
+                            style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
+                          >
+                            {playingMsgIdx === i ? '⏸' : '🔊'}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
