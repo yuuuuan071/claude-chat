@@ -285,7 +285,7 @@ export default function ChatPage() {
 
   const generateSpaceComments = async (postId: string, content: string, personaIds: string[]) => {
     setGeneratingFor(prev => new Set(prev).add(postId))
-    const convs = loadConversations()
+    const convs = await loadConversationsFromDB()
     for (const personaId of personaIds) {
       const persona = BUILT_IN_PERSONAS.find(p => p.id === personaId)
       if (!persona) continue
