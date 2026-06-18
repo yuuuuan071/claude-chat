@@ -98,6 +98,11 @@ export default function ChatPage() {
   const [devMode, setDevMode] = useState(false)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
   const [thinkingMode, setThinkingMode] = useState<'short' | 'long'>('short')
+  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null)
+  const [showDevPasswordDialog, setShowDevPasswordDialog] = useState(false)
+  const [devPasswordInput, setDevPasswordInput] = useState('')
+  const [devPasswordMode, setDevPasswordMode] = useState<'verify' | 'change'>('verify')
+  const [devPasswordError, setDevPasswordError] = useState('')
   const [apiConfigs, setApiConfigs] = useState<ApiConfig[]>([])
   const [activeConfigName, setActiveConfigName] = useState<string | null>(null)
   const [apiDraft, setApiDraft] = useState<ApiConfig>({ ...DEFAULT_API_DRAFT })
@@ -478,6 +483,28 @@ export default function ChatPage() {
     localStorage.setItem('theme', next)
   }
 
+  const handleDevPasswordConfirm = () => {
+    const stored = localStorage.getItem('dev-password') ?? '0000'
+    if (devPasswordMode === 'verify') {
+      if (devPasswordInput === stored) {
+        const next = !devMode
+        setDevMode(next)
+        localStorage.setItem('dev-mode', next ? 'true' : 'false')
+        setShowDevPasswordDialog(false)
+        setDevPasswordInput('')
+        setDevPasswordError('')
+        setShowMenu(false)
+      } else {
+        setDevPasswordError('密码错误')
+      }
+    } else {
+      localStorage.setItem('dev-password', devPasswordInput)
+      setShowDevPasswordDialog(false)
+      setDevPasswordInput('')
+      setDevPasswordError('')
+    }
+  }
+
   const allPersonas = [...BUILT_IN_PERSONAS, ...customPersonas]
 
   const getEffectiveSystemPrompt = (personaId: string) => {
@@ -698,7 +725,7 @@ export default function ChatPage() {
         /* Mobile sidebar overlay */
         .sidebar-container {
           position: fixed; top: 0; left: 0; height: 100%;
-          width: 17rem; max-width: 82vw; z-index: 40;
+          width: 17rem; max-width: 82vw; z-index: 9999;
           display: flex; flex-direction: column;
           transform: translateX(-100%);
           transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -707,7 +734,7 @@ export default function ChatPage() {
         @media (min-width: 640px) {
           .sidebar-container {
             position: relative; transform: none; transition: none;
-            width: 18rem; flex-shrink: 0; height: 100%; z-index: auto;
+            width: 18rem; flex-shrink: 0; height: 100%; z-index: 9999;
           }
           .sidebar-container.sidebar-closed { display: none; }
         }
@@ -882,89 +909,169 @@ export default function ChatPage() {
             >
               {showMenu && (
                 <div
-                  className="absolute bottom-14 left-3 right-3 rounded-xl overflow-hidden menu-animate"
+                  className="absolute bottom-14 left-3 right-3 rounded-xl menu-animate"
                   style={{
                     background: t.settingsBg,
                     backdropFilter: 'blur(16px)',
                     border: `1px solid ${t.headerBorder}`,
                     boxShadow: t.inputShadow,
+                    zIndex: 9999,
                   }}
                 >
-                  <button
-                    onClick={cycleTheme}
-                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                  {/* 🎨 外观 */}
+                  <div
+                    className="relative"
+                    style={{ borderBottom: `1px solid ${t.headerBorder}` }}
+                    onMouseEnter={() => setHoveredGroup('appearance')}
+                    onMouseLeave={() => setHoveredGroup(null)}
                   >
-                    主题：{t.name}
-                  </button>
-                  <button
-                    onClick={() => openSettings()}
-                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
-                  >
-                    System Prompt 设置
-                  </button>
-                  <button
-                    onClick={() => { setShowMemory(true); setShowMenu(false) }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
-                  >
-                    记忆库 {memoryItems.length > 0 && `(${memoryItems.length})`}
-                  </button>
-                  <button
-                    onClick={() => { setApiDraft({ ...DEFAULT_API_DRAFT }); setApiTestStatus('idle'); setModelList([]); setShowApiSettings(true); setShowMenu(false) }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
-                  >
-                    API 设置{activeConfigName ? ` · ${activeConfigName}` : ''}
-                  </button>
-                  <button
-                    onClick={() => {
-                      const next = !devMode
-                      setDevMode(next)
-                      localStorage.setItem('dev-mode', next ? 'true' : 'false')
-                      setShowMenu(false)
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
-                  >
-                    开发者模式：{devMode ? '开启 ✓' : '关闭'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      const next = !thinkingEnabled
-                      setThinkingEnabled(next)
-                      localStorage.setItem('thinking-enabled', next ? 'true' : 'false')
-                      setShowMenu(false)
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
-                  >
-                    心声模式：{thinkingEnabled ? '开启 ✓' : '关闭'}
-                  </button>
-                  {thinkingEnabled && (
                     <button
-                      onClick={() => {
-                        const next = thinkingMode === 'short' ? 'long' : 'short'
-                        setThinkingMode(next)
-                        localStorage.setItem('thinking-mode', next)
-                        setShowMenu(false)
-                      }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                      style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70 rounded-t-xl"
+                      style={{ color: t.settingsSubText }}
                     >
-                      心声深度：{thinkingMode === 'short' ? '简短' : '详细'}
+                      <span>🎨 外观</span>
+                      <span style={{ fontSize: '10px' }}>▸</span>
                     </button>
-                  )}
-                  {messages.length > 0 && (
+                    {hoveredGroup === 'appearance' && (
+                      <div
+                        className="absolute rounded-xl overflow-hidden"
+                        style={{
+                          left: '100%',
+                          bottom: 0,
+                          minWidth: '160px',
+                          background: t.settingsBg,
+                          backdropFilter: 'blur(16px)',
+                          border: `1px solid ${t.headerBorder}`,
+                          boxShadow: t.inputShadow,
+                        }}
+                      >
+                        <button
+                          onClick={cycleTheme}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText }}
+                        >
+                          主题：{t.name}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 💬 对话 */}
+                  <div
+                    className="relative"
+                    style={{ borderBottom: `1px solid ${t.headerBorder}` }}
+                    onMouseEnter={() => setHoveredGroup('chat')}
+                    onMouseLeave={() => setHoveredGroup(null)}
+                  >
                     <button
-                      onClick={() => { updateCurrentMessages([]); setShowMenu(false) }}
-                      className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                      style={{ color: t.settingsText }}
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70"
+                      style={{ color: t.settingsSubText }}
                     >
-                      清空当前对话
+                      <span>💬 对话</span>
+                      <span style={{ fontSize: '10px' }}>▸</span>
                     </button>
-                  )}
+                    {hoveredGroup === 'chat' && (
+                      <div
+                        className="absolute rounded-xl overflow-hidden"
+                        style={{
+                          left: '100%',
+                          bottom: 0,
+                          minWidth: '160px',
+                          background: t.settingsBg,
+                          backdropFilter: 'blur(16px)',
+                          border: `1px solid ${t.headerBorder}`,
+                          boxShadow: t.inputShadow,
+                        }}
+                      >
+                        <button
+                          onClick={() => openSettings()}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                        >
+                          System Prompt 设置
+                        </button>
+                        <button
+                          onClick={() => {
+                            const next = !thinkingEnabled
+                            setThinkingEnabled(next)
+                            localStorage.setItem('thinking-enabled', next ? 'true' : 'false')
+                            setShowMenu(false)
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText, borderBottom: thinkingEnabled ? `1px solid ${t.headerBorder}` : undefined }}
+                        >
+                          心声模式：{thinkingEnabled ? '开启 ✓' : '关闭'}
+                        </button>
+                        {thinkingEnabled && (
+                          <button
+                            onClick={() => {
+                              const next = thinkingMode === 'short' ? 'long' : 'short'
+                              setThinkingMode(next)
+                              localStorage.setItem('thinking-mode', next)
+                              setShowMenu(false)
+                            }}
+                            className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                            style={{ color: t.settingsText }}
+                          >
+                            心声深度：{thinkingMode === 'short' ? '简短' : '详细'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ⚙️ 高级 */}
+                  <div
+                    className="relative"
+                    onMouseEnter={() => setHoveredGroup('advanced')}
+                    onMouseLeave={() => setHoveredGroup(null)}
+                  >
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70 rounded-b-xl"
+                      style={{ color: t.settingsSubText }}
+                    >
+                      <span>⚙️ 高级</span>
+                      <span style={{ fontSize: '10px' }}>▸</span>
+                    </button>
+                    {hoveredGroup === 'advanced' && (
+                      <div
+                        className="absolute rounded-xl overflow-hidden"
+                        style={{
+                          left: '100%',
+                          bottom: 0,
+                          minWidth: '160px',
+                          background: t.settingsBg,
+                          backdropFilter: 'blur(16px)',
+                          border: `1px solid ${t.headerBorder}`,
+                          boxShadow: t.inputShadow,
+                        }}
+                      >
+                        <button
+                          onClick={() => { setApiDraft({ ...DEFAULT_API_DRAFT }); setApiTestStatus('idle'); setModelList([]); setShowApiSettings(true); setShowMenu(false) }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                        >
+                          API 设置{activeConfigName ? ` · ${activeConfigName}` : ''}
+                        </button>
+                        <button
+                          onClick={() => { setDevPasswordMode('verify'); setDevPasswordInput(''); setDevPasswordError(''); setShowDevPasswordDialog(true) }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText, borderBottom: devMode ? `1px solid ${t.headerBorder}` : undefined }}
+                        >
+                          开发者模式：{devMode ? '开启 ✓' : '关闭'}
+                        </button>
+                        {devMode && (
+                          <button
+                            onClick={() => { setDevPasswordMode('change'); setDevPasswordInput(''); setDevPasswordError(''); setShowDevPasswordDialog(true); setShowMenu(false) }}
+                            className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                            style={{ color: t.settingsText }}
+                          >
+                            修改密码
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1839,6 +1946,46 @@ return (
                   保存
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 开发者密码弹窗 */}
+      {showDevPasswordDialog && (
+        <div className="fixed inset-0 flex items-center justify-center z-30" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
+          <div
+            className="rounded-2xl p-6 w-72"
+            style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', border: `1px solid ${t.headerBorder}`, boxShadow: t.inputShadow }}
+          >
+            <p className="text-sm font-medium mb-4" style={{ color: t.settingsText }}>
+              {devPasswordMode === 'verify' ? '请输入开发者密码' : '设置新密码'}
+            </p>
+            <input
+              type="password"
+              className="w-full text-sm px-3 py-2 rounded-lg outline-none"
+              style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+              value={devPasswordInput}
+              onChange={e => { setDevPasswordInput(e.target.value); setDevPasswordError('') }}
+              placeholder={devPasswordMode === 'verify' ? '输入密码' : '输入新密码（4位）'}
+              maxLength={4}
+              onKeyDown={e => { if (e.key === 'Enter') handleDevPasswordConfirm() }}
+              autoFocus
+            />
+            {devPasswordError && (
+              <p className="text-xs mt-2" style={{ color: '#e55' }}>{devPasswordError}</p>
+            )}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => { setShowDevPasswordDialog(false); setDevPasswordInput(''); setDevPasswordError('') }}
+                className="flex-1 py-2 text-xs rounded-lg transition-opacity hover:opacity-70"
+                style={{ background: t.settingsInputBg, color: t.settingsSubText, border: `1px solid ${t.settingsInputBorder}` }}
+              >取消</button>
+              <button
+                onClick={handleDevPasswordConfirm}
+                className="flex-1 py-2 text-xs rounded-lg font-medium transition-opacity hover:opacity-70"
+                style={{ background: t.saveButton, color: t.saveButtonText }}
+              >确认</button>
             </div>
           </div>
         </div>
