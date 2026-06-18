@@ -8,8 +8,8 @@ import {
   type Conversation,
   createConversation,
   getTitleFromMessages,
-  loadConversations,
-  saveConversations,
+  loadConversationsFromDB,
+  saveConversationToDB,
 } from '../conversations'
 import {
   type MemoryItem,
@@ -96,6 +96,8 @@ export default function ChatPage() {
   const [showMemory, setShowMemory] = useState(false)
   const [showApiSettings, setShowApiSettings] = useState(false)
   const [devMode, setDevMode] = useState(false)
+  const [thinkingEnabled, setThinkingEnabled] = useState(false)
+  const [thinkingMode, setThinkingMode] = useState<'short' | 'long'>('short')
   const [apiConfigs, setApiConfigs] = useState<ApiConfig[]>([])
   const [activeConfigName, setActiveConfigName] = useState<string | null>(null)
   const [apiDraft, setApiDraft] = useState<ApiConfig>({ ...DEFAULT_API_DRAFT })
@@ -145,36 +147,42 @@ export default function ChatPage() {
   const messages = currentConversation?.messages ?? []
 
   useEffect(() => {
-    const saved = loadConversations()
-    if (saved.length > 0) {
-      setConversations(saved)
-      setCurrentId(saved[0].id)
-    } else {
-      const first = createConversation()
-      setConversations([first])
-      setCurrentId(first.id)
+    const init = async () => {
+      const saved = await loadConversationsFromDB()
+      if (saved.length > 0) {
+        setConversations(saved)
+        setCurrentId(saved[0].id)
+      } else {
+        const first = createConversation()
+        setConversations([first])
+        setCurrentId(first.id)
+      }
+      try {
+        const savedPrompt = localStorage.getItem('system-prompt')
+        if (savedPrompt) setSystemPrompt(savedPrompt)
+        const savedTheme = localStorage.getItem('theme')
+        if (savedTheme && themes[savedTheme]) setThemeKey(savedTheme)
+        const savedOverrides = localStorage.getItem('persona-prompts')
+        if (savedOverrides) setPersonaOverrides(JSON.parse(savedOverrides))
+        const savedCustom = localStorage.getItem('custom-personas')
+        if (savedCustom) setCustomPersonas(JSON.parse(savedCustom))
+        setDevMode(localStorage.getItem('dev-mode') === 'true')
+      setThinkingEnabled(localStorage.getItem('thinking-enabled') === 'true')
+      const savedThinkingMode = localStorage.getItem('thinking-mode')
+      if (savedThinkingMode === 'long') setThinkingMode('long')
+        const savedConfigs = localStorage.getItem(API_CONFIGS_KEY)
+        if (savedConfigs) setApiConfigs(JSON.parse(savedConfigs))
+        const savedActive = localStorage.getItem(ACTIVE_CONFIG_KEY)
+        if (savedActive) setActiveConfigName(savedActive)
+      } catch {}
+      setMemoryItems(loadMemory())
+      try {
+        const savedPosts = localStorage.getItem(SPACE_STORAGE_KEY)
+        if (savedPosts) setPosts(JSON.parse(savedPosts))
+      } catch {}
+      setMounted(true)
     }
-    try {
-      const savedPrompt = localStorage.getItem('system-prompt')
-      if (savedPrompt) setSystemPrompt(savedPrompt)
-      const savedTheme = localStorage.getItem('theme')
-      if (savedTheme && themes[savedTheme]) setThemeKey(savedTheme)
-      const savedOverrides = localStorage.getItem('persona-prompts')
-      if (savedOverrides) setPersonaOverrides(JSON.parse(savedOverrides))
-      const savedCustom = localStorage.getItem('custom-personas')
-      if (savedCustom) setCustomPersonas(JSON.parse(savedCustom))
-      setDevMode(localStorage.getItem('dev-mode') === 'true')
-      const savedConfigs = localStorage.getItem(API_CONFIGS_KEY)
-      if (savedConfigs) setApiConfigs(JSON.parse(savedConfigs))
-      const savedActive = localStorage.getItem(ACTIVE_CONFIG_KEY)
-      if (savedActive) setActiveConfigName(savedActive)
-    } catch {}
-    setMemoryItems(loadMemory())
-    try {
-      const savedPosts = localStorage.getItem(SPACE_STORAGE_KEY)
-      if (savedPosts) setPosts(JSON.parse(savedPosts))
-    } catch {}
-    setMounted(true)
+    init()
   }, [])
 
   useEffect(() => {
@@ -182,7 +190,8 @@ export default function ChatPage() {
   }, [messages])
 
   useEffect(() => {
-    if (mounted) saveConversations(conversations)
+    if (!mounted) return
+    conversations.forEach(conv => saveConversationToDB(conv))
   }, [conversations, mounted])
 
   useEffect(() => {
@@ -510,7 +519,7 @@ export default function ChatPage() {
   const sendMessage = async () => {
     if (!input.trim() || loading) return
 
-    const userMessage = { role: 'user' as const, content: input }
+    const userMessage = { role: 'user' as const, content: input, timestamp: Date.now() }
     const newMessages = [...messages, userMessage]
     updateCurrentMessages(newMessages)
     setAnimatedIds(prev => new Set(prev).add(newMessages.length - 1))
@@ -522,6 +531,13 @@ export default function ChatPage() {
     const currentPersonaId = currentConversation?.personaId ?? 'default'
     const personaSystemPrompt = getEffectiveSystemPrompt(currentPersonaId)
     const fullSystemPrompt = [memoryPrompt, personaSystemPrompt].filter(Boolean).join('\n\n')
+
+    const thinkingInstruction = thinkingEnabled
+      ? thinkingMode === 'long'
+        ? '\n\n【心声指令】每次回复前，先用 <think> 标签写下你此刻真实的内心活动。以第一人称叙述，可以包含对慧妍当前状态的感知、你的情绪反应、相关记忆的浮现、以及你决定怎么回应的过程。写完后再说出口的内容。格式：<think>...</think>\n说出口的内容'
+        : '\n\n【心声指令】每次回复前，先用 <think> 标签写一两句此刻最直接的内心反应，第一人称，简短真实。格式：<think>...</think>\n说出口的内容'
+      : ''
+    const finalSystemPrompt = fullSystemPrompt + thinkingInstruction
     const currentPersonaName = currentPersonaId === 'default' ? null : (getPersonaById(currentPersonaId)?.name ?? null)
 
     // ── 摘要压缩 ──────────────────────────────────────────────
@@ -534,12 +550,13 @@ export default function ChatPage() {
       const toSummarize = newMessages.slice(summarizedCount, endIdx)
 
       if (toSummarize.length > 0) {
+        const personaName = allPersonas.find(p => p.id === currentConversation?.personaId)?.name ?? '我'
         const msgText = toSummarize
-          .map(m => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
+          .map(m => `${m.role === 'user' ? '慧妍' : personaName}：${m.content}`)
           .join('\n')
         const summaryUserContent = summary
-          ? `以下是之前对话的摘要：\n${summary}\n\n以下是新增对话内容，请把上述摘要和新内容重新总结成一段简洁的新摘要，保留关键信息、决定和情绪基调，去掉口语化重复：\n${msgText}`
-          : `请把以下对话内容压缩成一段简洁摘要，保留关键信息、决定和情绪基调，去掉口语化重复：\n${msgText}`
+          ? `以下是我之前的记忆：\n${summary}\n\n以下是新增对话内容，请以我的第一人称，把上述记忆和新内容重新整合成一段简洁的内心记忆，保留慧妍的情绪状态、关键细节和重要决定，去掉口语化重复：\n${msgText}`
+          : `请以我的第一人称，把以下和慧妍的对话整理成一段简洁的内心记忆，保留她的情绪状态、关键细节和重要决定，去掉口语化重复：\n${msgText}`
 
         try {
           const summaryRes = await fetch('/api/chat', {
@@ -547,7 +564,7 @@ export default function ChatPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               messages: [{ role: 'user', content: summaryUserContent }],
-              systemPrompt: '你是一个对话摘要助手，只输出摘要内容，不加任何额外说明或标题。',
+              systemPrompt: '你是一个对话记忆整理助手。请以角色第一人称写一段简洁的内心记忆，记录和慧妍的对话要点、她的情绪状态和关键细节。只输出记忆内容，不加标题或说明。',
               ...getApiConfigForRequest(),
             }),
           })
@@ -567,13 +584,10 @@ export default function ChatPage() {
 
     // ── 组装发给主 API 的消息 ─────────────────────────────────
     const recentMessages = newMessages.slice(summarizedCount)
-    const messagesForAPI = summary
-      ? [
-          { role: 'user' as const, content: `以下是我们之前对话的摘要：\n${summary}` },
-          { role: 'assistant' as const, content: '好的，我已了解之前对话的内容。' },
-          ...recentMessages,
-        ]
-      : recentMessages
+    const messagesForAPI = recentMessages
+    const systemPromptWithMemory = summary
+      ? `${finalSystemPrompt}\n\n【我的记忆】\n${summary}`
+      : finalSystemPrompt
 
     try {
       const res = await fetch('/api/chat', {
@@ -581,7 +595,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: messagesForAPI,
-          systemPrompt: fullSystemPrompt || undefined,
+          systemPrompt: systemPromptWithMemory || undefined,
           personaName: currentPersonaName ?? undefined,
           ...getApiConfigForRequest(),
         }),
@@ -603,14 +617,15 @@ export default function ChatPage() {
       let assistantContent = ''
       let displayedContent = ''
       let assistantAdded = false
+    let assistantTimestamp: number | undefined
 
-      const typeChars = (target: string, current: string, base: typeof newMessages) => {
+      const typeChars = (target: string, current: string, base: typeof newMessages, ts?: number) => {
         if (typewriterRef.current.timer) clearTimeout(typewriterRef.current.timer)
         let i = current.length
         const tick = () => {
           if (i < target.length) {
             const next = target.slice(0, i + 1)
-            updateCurrentMessages([...base, { role: 'assistant', content: next }])
+            updateCurrentMessages([...base, { role: 'assistant', content: next, timestamp: ts }])
             i++
             typewriterRef.current.timer = setTimeout(tick, 15)
           }
@@ -631,12 +646,13 @@ export default function ChatPage() {
             const delta = parsed.choices?.[0]?.delta?.content ?? ''
             if (delta) {
               if (!assistantAdded) {
-                updateCurrentMessages([...newMessages, { role: 'assistant', content: '' }])
+                assistantTimestamp = Date.now()
+                updateCurrentMessages([...newMessages, { role: 'assistant', content: '', timestamp: assistantTimestamp }])
                 setAnimatedIds(prev => new Set(prev).add(newMessages.length))
                 assistantAdded = true
               }
               assistantContent += delta
-              typeChars(assistantContent, displayedContent, newMessages)
+              typeChars(assistantContent, displayedContent, newMessages, assistantTimestamp)
               displayedContent = assistantContent
             }
           } catch {}
@@ -787,7 +803,7 @@ export default function ChatPage() {
                     <div className="flex items-center gap-1 px-3 py-2">
                       <button
                         className="flex items-center gap-2 flex-1 min-w-0 transition-opacity hover:opacity-70"
-                        onClick={() => { setViewingPersona(persona); closeSidebarOnMobile() }}
+                        onClick={() => { setViewingPersona(persona); setViewingSpace(false); closeSidebarOnMobile() }}
                       >
                         <div className="w-2 h-2 rounded-full shrink-0" style={{ background: persona.color }} />
                         <span className="text-sm font-semibold flex-1 text-left truncate" style={{ color: t.headerText }}>{persona.name}</span>
@@ -914,6 +930,32 @@ export default function ChatPage() {
                   >
                     开发者模式：{devMode ? '开启 ✓' : '关闭'}
                   </button>
+                  <button
+                    onClick={() => {
+                      const next = !thinkingEnabled
+                      setThinkingEnabled(next)
+                      localStorage.setItem('thinking-enabled', next ? 'true' : 'false')
+                      setShowMenu(false)
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                  >
+                    心声模式：{thinkingEnabled ? '开启 ✓' : '关闭'}
+                  </button>
+                  {thinkingEnabled && (
+                    <button
+                      onClick={() => {
+                        const next = thinkingMode === 'short' ? 'long' : 'short'
+                        setThinkingMode(next)
+                        localStorage.setItem('thinking-mode', next)
+                        setShowMenu(false)
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                      style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                    >
+                      心声深度：{thinkingMode === 'short' ? '简短' : '详细'}
+                    </button>
+                  )}
                   {messages.length > 0 && (
                     <button
                       onClick={() => { updateCurrentMessages([]); setShowMenu(false) }}
@@ -1288,52 +1330,88 @@ export default function ChatPage() {
                 {messages.map((msg, i) => (
                   <div
                     key={i}
-                    className={`flex ${msg.role === 'user' ? 'justify-end pr-4' : 'justify-start pl-4'} ${animatedIds.has(i) ? 'bubble-animate' : ''}`}
+                    className={`flex flex-col ${msg.role === 'user' ? 'items-end pr-4' : 'items-start pl-4'}`}
                   >
-                    <div
-                      className="chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
-                      style={msg.role === 'user'
-                        ? { background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)' }
-                        : { background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)' }
-                      }
-                    >
-                      {msg.role === 'user' ? msg.content : (
-                        <ReactMarkdown
-                          components={{
-                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                            code: ({ children, className }) => {
-                              const isBlock = className?.includes('language-')
-                              const language = className?.replace('language-', '') ?? 'text'
-                              if (isBlock) {
-                                const { Prism: SyntaxHighlighter } = require('react-syntax-highlighter')
-                                const { oneDark } = require('react-syntax-highlighter/dist/cjs/styles/prism')
-                                return (
-                                  <SyntaxHighlighter
-                                    language={language}
-                                    style={oneDark}
-                                    customStyle={{ borderRadius: '8px', fontSize: '12px', margin: '8px 0', background: t.codeBg }}
-                                  >
-                                    {String(children).replace(/\n$/, '')}
-                                  </SyntaxHighlighter>
-                                )
-                              }
-                              return (
-                                <code className="rounded px-1 py-0.5 text-xs" style={{ background: t.codeBg, color: t.codeText }}>{children}</code>
-                              )
-                            },
-                            ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-                            ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-                            li: ({ children }) => <li>{children}</li>,
-                            strong: ({ children }) => <strong className="font-semibold" style={{ color: t.strongText }}>{children}</strong>,
-                            h1: ({ children }) => <h1 className="text-base font-semibold mb-2" style={{ color: t.strongText }}>{children}</h1>,
-                            h2: ({ children }) => <h2 className="text-sm font-semibold mb-2" style={{ color: t.strongText }}>{children}</h2>,
-                            h3: ({ children }) => <h3 className="text-sm font-semibold mb-1" style={{ color: t.strongText }}>{children}</h3>,
-                          }}
-                        >
-                          {msg.content}
-                        </ReactMarkdown>
-                      )}
-                    </div>
+                    {animatedIds.has(i) && <style>{`.bubble-${i}{animation:bubbleIn 0.25s ease}`}</style>}
+                    {msg.role === 'assistant' && (() => {
+                      const thinkMatch = msg.content.match(/^<think>([\s\S]*?)<\/think>\n?/)
+                      if (!thinkMatch) return null
+                      const thinkContent = thinkMatch[1]
+                      return (
+                        <details className="mb-1 max-w-[70%]" style={{ fontSize: '0.72rem' }}>
+                          <summary style={{ cursor: 'pointer', color: t.settingsSubText, listStyle: 'none', display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px', userSelect: 'none' }}>
+                            <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>💭</span>
+                            <span style={{ opacity: 0.7 }}>心声</span>
+                          </summary>
+                          <div style={{ marginTop: '4px', padding: '8px 10px', borderRadius: '10px', background: t.settingsBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsSubText, fontStyle: 'italic', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                            {thinkContent}
+                          </div>
+                        </details>
+                      )
+                    })()}
+                    {msg.role === 'user' ? (
+                      <div
+                        className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "")}
+                        style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)' }}
+                      >
+                        {msg.content}
+                      </div>
+                    ) : (() => {
+                      const cleanContent = msg.content.startsWith('<think>') && !msg.content.includes('</think>') ? '' : msg.content.replace(/^<think>[\s\S]*?<\/think>\n?/, '')
+                      const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim())
+                      const segments = rawSegments.length === 0 ? [''] : rawSegments
+                      return (
+                        <>
+                          {segments.map((seg, si) => (
+                            <div
+                              key={si}
+                              className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "") + (si < segments.length - 1 ? " mb-1" : "")}
+                              style={{ background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)' }}
+                            >
+                              <ReactMarkdown
+                                components={{
+                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                  code: ({ children, className }) => {
+                                    const isBlock = className?.includes('language-')
+                                    const language = className?.replace('language-', '') ?? 'text'
+                                    if (isBlock) {
+                                      const { Prism: SyntaxHighlighter } = require('react-syntax-highlighter')
+                                      const { oneDark } = require('react-syntax-highlighter/dist/cjs/styles/prism')
+                                      return (
+                                        <SyntaxHighlighter
+                                          language={language}
+                                          style={oneDark}
+                                          customStyle={{ borderRadius: '8px', fontSize: '12px', margin: '8px 0', background: t.codeBg }}
+                                        >
+                                          {String(children).replace(/\n$/, '')}
+                                        </SyntaxHighlighter>
+                                      )
+                                    }
+                                    return (
+                                      <code className="rounded px-1 py-0.5 text-xs" style={{ background: t.codeBg, color: t.codeText }}>{children}</code>
+                                    )
+                                  },
+                                  ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                                  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                                  li: ({ children }) => <li>{children}</li>,
+                                  strong: ({ children }) => <strong className="font-semibold" style={{ color: t.strongText }}>{children}</strong>,
+                                  h1: ({ children }) => <h1 className="text-base font-semibold mb-2" style={{ color: t.strongText }}>{children}</h1>,
+                                  h2: ({ children }) => <h2 className="text-sm font-semibold mb-2" style={{ color: t.strongText }}>{children}</h2>,
+                                  h3: ({ children }) => <h3 className="text-sm font-semibold mb-1" style={{ color: t.strongText }}>{children}</h3>,
+                                }}
+                              >
+                                {seg}
+                              </ReactMarkdown>
+                            </div>
+                          ))}
+                        </>
+                      )
+                    })()}
+                    {msg.timestamp && (
+                      <span style={{ fontSize: '0.62rem', color: t.timestampText, marginTop: '2px', paddingLeft: '4px', paddingRight: '4px' }}>
+                        {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </div>
                 ))}
                 {loading && messages[messages.length - 1]?.role !== 'assistant' && (
@@ -1791,3 +1869,4 @@ export default function ChatPage() {
     </div>
   )
 }
+

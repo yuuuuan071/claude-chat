@@ -3,6 +3,7 @@ import { generateId } from './utils'
 export type Message = {
     role: 'user' | 'assistant'
     content: string
+    timestamp?: number
   }
 
   export type Conversation = {
@@ -44,3 +45,40 @@ export type Message = {
   export const saveConversations = (conversations: Conversation[]) => {
     localStorage.setItem('conversations', JSON.stringify(conversations))
   }
+
+export const loadConversationsFromDB = async (): Promise<Conversation[]> => {
+  try {
+    const res = await fetch('/api/conversations')
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.map((row: { id: string; title: string; messages: Message[]; persona_id?: string; summary?: string; summarized_count?: number; created_at: string; updated_at: string }) => ({
+      id: row.id,
+      title: row.title,
+      messages: row.messages,
+      personaId: row.persona_id,
+      summary: row.summary ?? '',
+      summarizedCount: row.summarized_count ?? 0,
+      createdAt: new Date(row.created_at).getTime(),
+      updatedAt: new Date(row.updated_at).getTime(),
+    }))
+  } catch {
+    return []
+  }
+}
+
+export const saveConversationToDB = async (conv: Conversation): Promise<void> => {
+  try {
+    await fetch('/api/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: conv.id,
+        title: conv.title,
+        messages: conv.messages,
+        persona_id: conv.personaId,
+        summary: conv.summary,
+        summarized_count: conv.summarizedCount,
+      }),
+    })
+  } catch {}
+}
