@@ -1358,9 +1358,9 @@ export default function ChatPage() {
                       </div>
                     ) : (() => {
                       const cleanContent = msg.content.startsWith('<think>') && !msg.content.includes('</think>') ? '' : msg.content.replace(/^<think>[\s\S]*?<\/think>\n?/, '')
-                      const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim())
+                      const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim()).filter(s => s.replace(/^<think>[\s\S]*?<\/think>\n?/, '').trim() !== '').filter(s => !/^[-—\s]+$/.test(s.trim()))
                       const segments = rawSegments.length === 0 ? [''] : rawSegments
-                      return (
+return (
                         <>
                           {segments.map((seg, si) => (
                             <div
