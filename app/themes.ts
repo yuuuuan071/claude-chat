@@ -23,6 +23,7 @@ export type Theme = {
     codeBg: string
     codeText: string
     strongText: string
+    timestampText: string
     settingsBg: string
     settingsText: string
     settingsSubText: string
