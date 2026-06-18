@@ -6,7 +6,7 @@ export async function POST(req: Request) {
   const groupId = process.env.MINIMAX_GROUP_ID
   if (!apiKey || !groupId) return Response.json({ error: 'MiniMax credentials not configured' }, { status: 500 })
 
-  const upstream = await fetch(`https://api.minimaxi.chat/v1/t2a_v2?GroupId=${groupId}`, {
+  const upstream = await fetch(`https://api.minimaxi.com/v1/t2a_v2?GroupId=${groupId}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
