@@ -526,6 +526,17 @@ export default function ChatPage() {
     }
   }
 
+  const regenerate = () => {
+    if (loading) return
+    const lastAssistantIdx = messages.map(m => m.role).lastIndexOf('assistant')
+    if (lastAssistantIdx === -1) return
+    const trimmed = messages.slice(0, lastAssistantIdx)
+    updateCurrentMessages(trimmed)
+    const lastUserMsg = [...trimmed].reverse().find(m => m.role === 'user')
+    if (!lastUserMsg) return
+    sendMessage(lastUserMsg.content, true)
+  }
+
   const cycleTheme = () => {
     const idx = themeOrder.indexOf(themeKey)
     const next = themeOrder[(idx + 1) % themeOrder.length]
@@ -595,15 +606,22 @@ export default function ChatPage() {
   const SUMMARY_THRESHOLD = 10
   const KEEP_RECENT = 4
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return
+  const sendMessage = async (overrideContent?: string, skipAddUser?: boolean) => {
+    const content = overrideContent ?? input
+    if (!content.trim() || loading) return
 
-    const userMessage = { role: 'user' as const, content: input, timestamp: Date.now() }
-    const newMessages = [...messages, userMessage]
-    updateCurrentMessages(newMessages)
-    setAnimatedIds(prev => new Set(prev).add(newMessages.length - 1))
-    setInput('')
-    if (inputRef.current) inputRef.current.style.height = 'auto'
+    let newMessages
+    if (skipAddUser) {
+      const lastAsstIdx = messages.map(m => m.role).lastIndexOf('assistant')
+      newMessages = lastAsstIdx !== -1 ? messages.slice(0, lastAsstIdx) : [...messages]
+    } else {
+      const userMessage = { role: 'user' as const, content, timestamp: Date.now() }
+      newMessages = [...messages, userMessage]
+      updateCurrentMessages(newMessages)
+      setAnimatedIds(prev => new Set(prev).add(newMessages.length - 1))
+      setInput('')
+      if (inputRef.current) inputRef.current.style.height = 'auto'
+    }
     setLoading(true)
 
     const memoryPrompt = buildMemoryPrompt(memoryItems)
@@ -1496,7 +1514,7 @@ export default function ChatPage() {
                 {messages.length === 0 && (
                   <div className="text-center mt-20 text-sm" style={{ color: t.emptyText }}>开始对话吧</div>
                 )}
-                {messages.map((msg, i) => (
+                {(() => { const lastAsstIdx = messages.map(m => m.role).lastIndexOf('assistant'); return messages.map((msg, i) => (
                   <div
                     key={i}
                     className={`flex flex-col ${msg.role === 'user' ? 'items-end pr-4' : 'items-start pl-4'}`}
@@ -1582,18 +1600,29 @@ return (
                           {new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {msg.role === 'assistant' && (
-                          <button
-                            onClick={() => playTTS(i, msg.content.replace(/^<think>[\s\S]*?<\/think>\n?/, ''))}
-                            className="transition-opacity hover:opacity-100"
-                            style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
-                          >
-                            {playingMsgIdx === i ? '⏸' : '🔊'}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => playTTS(i, msg.content.replace(/^<think>[\s\S]*?<\/think>\n?/, ''))}
+                              className="transition-opacity hover:opacity-100"
+                              style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
+                            >
+                              {playingMsgIdx === i ? '⏸' : '🔊'}
+                            </button>
+                            {i === lastAsstIdx && (
+                              <button
+                                onClick={regenerate}
+                                className="transition-opacity hover:opacity-100"
+                                style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
+                              >
+                                🔄
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
                   </div>
-                ))}
+                ))})()}
                 {loading && messages[messages.length - 1]?.role !== 'assistant' && (
                   <div className="flex justify-start">
                     <div className="text-sm px-4 py-3" style={{ color: t.emptyText }}>...</div>
