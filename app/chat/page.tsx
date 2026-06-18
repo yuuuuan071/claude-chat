@@ -116,6 +116,7 @@ export default function ChatPage() {
   const [systemPromptDraft, setSystemPromptDraft] = useState('')
   const [showPreview, setShowPreview] = useState(false)
   const [personaOverrides, setPersonaOverrides] = useState<Record<string, string>>({})
+  const [dbPersonaPrompts, setDbPersonaPrompts] = useState<Record<string, string>>({})
   const [customPersonas, setCustomPersonas] = useState<Persona[]>([])
   const [editingPersonaId, setEditingPersonaId] = useState<string>('default')
   const [newPersonaName, setNewPersonaName] = useState('')
@@ -193,6 +194,18 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    if (!mounted) return
+    fetch('/api/personas')
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: { id: string; system_prompt: string }[]) => {
+        const map: Record<string, string> = {}
+        rows.forEach(row => { if (row.system_prompt) map[row.id] = row.system_prompt })
+        setDbPersonaPrompts(map)
+      })
+      .catch(() => {})
+  }, [mounted])
 
   useEffect(() => {
     if (!mounted) return
@@ -508,8 +521,10 @@ export default function ChatPage() {
   const allPersonas = [...BUILT_IN_PERSONAS, ...customPersonas]
 
   const getEffectiveSystemPrompt = (personaId: string) => {
-    if (personaId === 'default') return personaOverrides['default'] || DEFAULT_PROMPT
-    return personaOverrides[personaId] ?? allPersonas.find(p => p.id === personaId)?.systemPrompt ?? ''
+    if (personaOverrides[personaId]) return personaOverrides[personaId]
+    if (dbPersonaPrompts[personaId]) return dbPersonaPrompts[personaId]
+    if (personaId === 'default') return DEFAULT_PROMPT
+    return allPersonas.find(p => p.id === personaId)?.systemPrompt ?? ''
   }
 
   const openSettings = (personaId = 'default') => {
