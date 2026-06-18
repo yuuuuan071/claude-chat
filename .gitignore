@@ -46,3 +46,6 @@ next-env.d.ts
 
 # Claude Code project-level config
 .claude/
+
+# temporary fix scripts
+fix_*.py
