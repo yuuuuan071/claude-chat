@@ -17,6 +17,16 @@ export async function GET(req: Request) {
   return Response.json(data)
 }
 
+export async function DELETE(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const id = searchParams.get('id')
+  if (!id) return Response.json({ error: 'id is required' }, { status: 400 })
+
+  const { error } = await supabase.from('conversations').delete().eq('id', id)
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+  return new Response(null, { status: 204 })
+}
+
 export async function POST(req: Request) {
   const body = await req.json()
   const { id, persona_id, title, messages, summary, summarized_count } = body

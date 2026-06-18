@@ -422,6 +422,7 @@ export default function ChatPage() {
   }
 
   const deleteConversation = (id: string) => {
+    fetch(`/api/conversations?id=${id}`, { method: 'DELETE' }).catch(() => {})
     setConversations(prev => {
       const next = prev.filter(c => c.id !== id)
       if (id === currentId) {
@@ -627,9 +628,16 @@ export default function ChatPage() {
     // ── 组装发给主 API 的消息 ─────────────────────────────────
     const recentMessages = newMessages.slice(summarizedCount)
     const messagesForAPI = recentMessages
+
+    const _now = new Date(Date.now() + 8 * 60 * 60 * 1000)
+    const _days = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+    const _h = _now.getUTCHours()
+    const _period = _h < 6 ? '凌晨' : _h < 9 ? '早上' : _h < 12 ? '上午' : _h < 14 ? '中午' : _h < 18 ? '下午' : '晚上'
+    const _timeStr = `现在是${_days[_now.getUTCDay()]}${_period} ${String(_h).padStart(2,'0')}:${String(_now.getUTCMinutes()).padStart(2,'0')}`
+
     const systemPromptWithMemory = summary
-      ? `${finalSystemPrompt}\n\n【我的记忆】\n${summary}`
-      : finalSystemPrompt
+      ? `${finalSystemPrompt}\n\n【我的记忆】\n${summary}\n\n${_timeStr}`
+      : `${finalSystemPrompt}\n\n${_timeStr}`
 
     try {
       const res = await fetch('/api/chat', {
