@@ -1121,6 +1121,9 @@ export default function ChatPage() {
               borderBottom: `1px solid ${t.headerBorder}`,
               background: t.headerBg,
               backdropFilter: 'blur(12px)',
+              position: 'sticky',
+              top: 0,
+              zIndex: 50,
             }}
           >
             <button
@@ -1565,7 +1568,7 @@ return (
                   <textarea
                     ref={inputRef}
                     className="flex-1 bg-transparent resize-none outline-none text-sm"
-                    style={{ color: t.inputText, maxHeight: '160px', overflowY: 'auto' }}
+                    style={{ color: t.inputText, maxHeight: '160px', overflowY: 'auto', fontSize: '16px' }}
                     placeholder={`给 ${currentConversation?.personaId && currentConversation.personaId !== 'default' ? (getPersonaById(currentConversation.personaId)?.name ?? 'Claude') : 'Claude'} 发送消息`}
                     rows={1}
                     value={input}
