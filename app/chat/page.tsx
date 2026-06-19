@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import { themes, themeOrder } from '../themes'
+import RainEffect from '../components/RainEffect'
 import {
   type Conversation,
   createConversation,
@@ -822,19 +823,7 @@ export default function ChatPage() {
         }
       `}</style>
 
-      {/* 晨雾雨天视频背景 */}
-      {themeKey === 'morning' && (
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ zIndex: 0, opacity: 0.3 }}
-        >
-          <source src="/rain.mp4" type="video/mp4" />
-        </video>
-      )}
+      {themeKey === 'morning' && <RainEffect opacity={0.8} />}
 
       <div className="relative flex w-full h-full" style={{ zIndex: 1 }}>
 
