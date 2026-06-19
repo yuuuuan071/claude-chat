@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import EpiphyllumEffect from './components/EpiphyllumEffect'
 
 type Weather = {
   temp: number
@@ -51,14 +52,7 @@ export default function HomePage() {
         transition: 'opacity 0.5s ease',
       }}
     >
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: 'url(/bg.png)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
-      />
+      <EpiphyllumEffect onAnimationComplete={() => {}} />
       <div className="absolute inset-0" style={{ background: 'rgba(20,15,8,0.08)' }} />
 
       <div className="absolute top-10 left-12 z-10">
