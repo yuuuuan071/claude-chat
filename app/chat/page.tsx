@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import { themes, themeOrder } from '../themes'
 import RainEffect from '../components/RainEffect'
+import SnowEffect from '../components/SnowEffect'
 import {
   type Conversation,
   createConversation,
@@ -824,6 +825,7 @@ export default function ChatPage() {
       `}</style>
 
       {themeKey === 'morning' && <RainEffect opacity={0.8} />}
+      {themeKey === 'snow' && <SnowEffect opacity={0.9} />}
 
       <div className="relative flex w-full h-full" style={{ zIndex: 1 }}>
 
