@@ -1652,7 +1652,7 @@ return (
                     }}
                   />
                   <button
-                    onClick={sendMessage}
+                    onClick={() => sendMessage()}
                     disabled={loading || !input.trim()}
                     className="transition-opacity disabled:opacity-30"
                     style={{ color: t.sendButton }}
