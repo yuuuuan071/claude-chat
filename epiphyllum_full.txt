@@ -31,9 +31,14 @@ export default function EpiphyllumEffect({ onAnimationComplete }: EpiphyllumProp
     }
 
     function generateCurvedPetal(
-      baseAngle: number, petalLen: number, petalWid: number,
-      startR: number, startH: number, endH: number,
-      inwardCurl: number, count: number
+      baseAngle: number,
+      petalLen: number,
+      petalWid: number,
+      startR: number,
+      startH: number,
+      endH: number,
+      inwardCurl: number,
+      count: number
     ): number[] {
       const pts: number[] = [];
       for (let i = 0; i < count; i++) {
@@ -45,7 +50,11 @@ export default function EpiphyllumEffect({ onAnimationComplete }: EpiphyllumProp
         const across = (Math.random() - 0.5) * w;
         const angle = baseAngle + across / (startR + t * petalLen * 0.5);
         const actualR = r - inward;
-        pts.push(Math.cos(angle) * actualR, h + (Math.random() - 0.5) * 0.008, Math.sin(angle) * actualR);
+        pts.push(
+          Math.cos(angle) * actualR,
+          h + (Math.random() - 0.5) * 0.008,
+          Math.sin(angle) * actualR
+        );
       }
       return pts;
     }
@@ -166,6 +175,7 @@ export default function EpiphyllumEffect({ onAnimationComplete }: EpiphyllumProp
       if (!startTime) startTime = ts;
       const el = (ts - startTime) / 1000;
 
+      // 绽放完成后只保留转动
       if (el >= 8.5) {
         if (!completed) { completed = true; onAnimationComplete?.(); }
         particles.rotation.y = 0.6 + (el - 2.0) * 0.025;

@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import EpiphyllumEffect from './components/EpiphyllumEffect'
-import CodeRainTransition from './components/CodeRainTransition'
 
 type Weather = {
   temp: number
@@ -40,11 +39,9 @@ export default function HomePage() {
 
   const handleEnterChat = () => {
     setTransitioning(true)
+    setTimeout(() => router.push('/chat'), 800)
   }
 
-  const handleRainComplete = () => {
-    router.push('/chat')
-  }
 
   if (!mounted) return null
 
@@ -54,7 +51,7 @@ export default function HomePage() {
       style={{}}
     >
       <EpiphyllumEffect onAnimationComplete={() => {}} />
-      <CodeRainTransition active={transitioning} onComplete={handleRainComplete} />
+
       <div className="absolute inset-0" style={{ background: 'rgba(20,15,8,0.08)' }} />
 
       <div className="absolute top-10 left-12 z-10" style={{
