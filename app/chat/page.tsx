@@ -91,6 +91,9 @@ export default function ChatPage() {
   const router = useRouter()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentId, setCurrentId] = useState<string>('')
+  useEffect(() => {
+    if (currentId) localStorage.setItem('last-conv-id', currentId)
+  }, [currentId])
   const [mounted, setMounted] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -161,7 +164,9 @@ export default function ChatPage() {
       const saved = await loadConversationsFromDB()
       if (saved.length > 0) {
         setConversations(saved)
-        setCurrentId(saved[0].id)
+        const lastId = localStorage.getItem('last-conv-id')
+        const lastExists = lastId && saved.some(c => c.id === lastId)
+        setCurrentId(lastExists ? lastId : saved[0].id)
       } else {
         const first = createConversation()
         setConversations([first])
@@ -402,7 +407,7 @@ export default function ChatPage() {
   }
 
   const handleGoHome = () => {
-    setTransitioning(true)
+    // setTransitioning(true)
     setTimeout(() => router.push('/'), 400)
   }
 
@@ -500,12 +505,27 @@ export default function ChatPage() {
     'default': 'male-qn-qingse',
   }
 
+  const ttsCache = useRef<Record<number, string>>({})
+  const ttsLoadingRef = useRef<boolean>(false)
+
   const playTTS = async (idx: number, text: string) => {
     if (playingMsgIdx === idx) {
       ttsAudioRef.current?.pause()
       setPlayingMsgIdx(null)
       return
     }
+    if (ttsLoadingRef.current) return
+    // 有缓存直接播放
+    if (ttsCache.current[idx]) {
+      const audio = new Audio(ttsCache.current[idx])
+      ttsAudioRef.current = audio
+      audio.onended = () => setPlayingMsgIdx(null)
+      audio.onerror = () => setPlayingMsgIdx(null)
+      audio.play()
+      setPlayingMsgIdx(idx)
+      return
+    }
+    ttsLoadingRef.current = true
     setPlayingMsgIdx(idx)
     const personaId = currentConversation?.personaId ?? 'default'
     const voice = VOICE_MAP[personaId] ?? 'male-qn-qingse'
@@ -518,13 +538,23 @@ export default function ChatPage() {
       if (!res.ok) { setPlayingMsgIdx(null); return }
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
+      // 缓存超过20条时清掉最早的
+      const keys = Object.keys(ttsCache.current)
+      if (keys.length >= 20) {
+        const oldest = keys[0]
+        URL.revokeObjectURL(ttsCache.current[Number(oldest)])
+        delete ttsCache.current[Number(oldest)]
+      }
+      ttsCache.current[idx] = url
       const audio = new Audio(url)
       ttsAudioRef.current = audio
-      audio.onended = () => { setPlayingMsgIdx(null); URL.revokeObjectURL(url) }
-      audio.onerror = () => { setPlayingMsgIdx(null); URL.revokeObjectURL(url) }
+      audio.onended = () => { setPlayingMsgIdx(null) }
+      audio.onerror = () => { setPlayingMsgIdx(null) }
       audio.play()
     } catch {
       setPlayingMsgIdx(null)
+    } finally {
+      ttsLoadingRef.current = false
     }
   }
 
@@ -775,13 +805,13 @@ export default function ChatPage() {
 
   return (
     <div
-      className="flex h-screen relative"
+      className="flex h-screen relative overflow-hidden overscroll-none"
       style={{
         backgroundColor: t.bg,
         color: t.assistantText,
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E")`,
         backgroundSize: '200px 200px',
-        transition: 'background-color 0.4s ease, color 0.4s ease, opacity 0.4s ease',
+        transition: 'background-color 0.15s ease, color 0.15s ease',
         opacity: transitioning ? 0 : 1,
       }}
     >
@@ -1622,7 +1652,7 @@ return (
                 <div ref={bottomRef} />
               </div>
               {/* 输入框 */}
-              <div className="chat-input-area px-4 pb-6 shrink-0">
+              <div className="chat-input-area px-4 pb-6 shrink-0 sticky bottom-0">
                 <div
                   className="flex items-end gap-2 rounded-2xl px-4 py-3"
                   style={{
@@ -1654,10 +1684,12 @@ return (
                   <button
                     onClick={() => sendMessage()}
                     disabled={loading || !input.trim()}
-                    className="transition-opacity disabled:opacity-30"
-                    style={{ color: t.sendButton }}
+                    className="transition-opacity disabled:opacity-30 flex items-center justify-center rounded-full w-8 h-8"
+                    style={{ backgroundColor: input.trim() && !loading ? t.sendButton : 'transparent', border: `2px solid ${t.sendButton}`, opacity: loading || !input.trim() ? 0.3 : 1 }}
                   >
-                    ↑
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                   </button>
                 </div>
                 <p className="input-hint text-center text-xs mt-2" style={{ color: t.footerText }}>按 Enter 发送，Shift+Enter 换行</p>

@@ -22,6 +22,7 @@ export default function EpiphyllumEffect({ onAnimationComplete }: EpiphyllumProp
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x000000, 0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     mount.appendChild(renderer.domElement);
 
     function bezier3(p0: number, p1: number, p2: number, p3: number, t: number) {
@@ -152,7 +153,7 @@ export default function EpiphyllumEffect({ onAnimationComplete }: EpiphyllumProp
     geometry.setAttribute('color', new THREE.BufferAttribute(allCol, 3));
 
     const material = new THREE.PointsMaterial({
-      size: 0.016,
+      size: 0.022,
       vertexColors: true,
       transparent: true,
       opacity: 0,

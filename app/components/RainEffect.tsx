@@ -239,6 +239,7 @@ export default function RainEffect({ opacity = 0.8 }: { opacity?: number }) {
       ref={canvasRef}
       style={{
         position: 'fixed',
+        backgroundColor: '#c8d4dc',
         top: 0,
         left: 0,
         width: '100%',
