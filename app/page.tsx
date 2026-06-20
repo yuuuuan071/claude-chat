@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import EpiphyllumEffect from './components/EpiphyllumEffect'
+import CodeRainTransition from './components/CodeRainTransition'
 
 type Weather = {
   temp: number
@@ -39,7 +40,10 @@ export default function HomePage() {
 
   const handleEnterChat = () => {
     setTransitioning(true)
-    setTimeout(() => router.push('/chat'), 500)
+  }
+
+  const handleRainComplete = () => {
+    router.push('/chat')
   }
 
   if (!mounted) return null
@@ -47,15 +51,17 @@ export default function HomePage() {
   return (
     <div
       className="fixed inset-0 overflow-hidden"
-      style={{
-        opacity: transitioning ? 0 : 1,
-        transition: 'opacity 0.5s ease',
-      }}
+      style={{}}
     >
       <EpiphyllumEffect onAnimationComplete={() => {}} />
+      <CodeRainTransition active={transitioning} onComplete={handleRainComplete} />
       <div className="absolute inset-0" style={{ background: 'rgba(20,15,8,0.08)' }} />
 
-      <div className="absolute top-10 left-12 z-10">
+      <div className="absolute top-10 left-12 z-10" style={{
+        transform: transitioning ? 'translateY(-120px)' : 'translateY(0)',
+        opacity: transitioning ? 0 : 1,
+        transition: 'transform 0.6s ease-in, opacity 0.4s ease-in',
+      }}>
         <div
           className="text-6xl font-light tracking-wider"
           style={{ color: 'rgba(255,255,255,0.95)', textShadow: '0 2px 16px rgba(0,0,0,0.2)' }}
@@ -89,29 +95,29 @@ export default function HomePage() {
 
       <div
         className="absolute z-10"
-        style={{ bottom: '40px', right: '48px' }}
+        style={{
+          bottom: '40px', right: '48px',
+          transform: transitioning ? 'translateY(120px)' : 'translateY(0)',
+          opacity: transitioning ? 0 : 1,
+          transition: 'transform 0.6s ease-in, opacity 0.4s ease-in',
+        }}
       >
         <div
           onClick={handleEnterChat}
-          className="cursor-pointer flex items-center gap-3 px-5 py-3 rounded-2xl"
+          className="cursor-pointer"
           style={{
-            background: 'rgba(255,255,255,0.18)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(255,255,255,0.25)',
-            transition: 'transform 0.2s ease, background 0.2s ease',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+            transition: 'opacity 0.2s ease',
           }}
-          onMouseEnter={e => {
-            e.currentTarget.style.transform = 'translateY(-2px)'
-            e.currentTarget.style.background = 'rgba(255,255,255,0.28)'
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.transform = 'translateY(0)'
-            e.currentTarget.style.background = 'rgba(255,255,255,0.18)'
-          }}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '0.6' }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '1' }}
         >
-          <span style={{ fontSize: '18px' }}>✦</span>
-          <span className="text-sm font-light" style={{ color: 'rgba(255,255,255,0.9)' }}>开始对话</span>
+          <span style={{
+            fontFamily: 'var(--font-pinyon-script), Georgia, serif',
+            fontStyle: 'italic',
+            fontSize: '28px',
+            color: 'rgba(255,255,255,0.85)',
+            letterSpacing: '0.08em',
+          }}>Enter the bloom</span>
         </div>
       </div>
     </div>
