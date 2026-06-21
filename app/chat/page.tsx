@@ -798,6 +798,14 @@ export default function ChatPage() {
       console.error(e)
     } finally {
       setLoading(false)
+      if (newMessages.length >= 2) {
+        const personaId = currentConversation?.personaId ?? 'default'
+        fetch('/api/extract-memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: newMessages.slice(-6), persona_id: personaId })
+        }).catch(() => {})
+      }
     }
   }
 

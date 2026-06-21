@@ -5,10 +5,17 @@ import * as THREE from 'three';
 
 interface EpiphyllumProps {
   onAnimationComplete?: () => void;
+  onScatterComplete?: () => void;
+  triggerScatter?: boolean;
 }
 
-export default function EpiphyllumEffect({ onAnimationComplete }: EpiphyllumProps) {
+export default function EpiphyllumEffect({ onAnimationComplete, onScatterComplete, triggerScatter }: EpiphyllumProps) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const triggerScatterRef = useRef(triggerScatter);
+  const onScatterCompleteRef = useRef(onScatterComplete);
+
+  useEffect(() => { triggerScatterRef.current = triggerScatter; }, [triggerScatter]);
+  useEffect(() => { onScatterCompleteRef.current = onScatterComplete; }, [onScatterComplete]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -159,12 +166,60 @@ export default function EpiphyllumEffect({ onAnimationComplete }: EpiphyllumProp
     let startTime: number | null = null;
     let animId: number;
     let completed = false;
+    let scattering = false;
+    let scatterStartTime: number | null = null;
+    let scatterStartPos: Float32Array | null = null;
+    let scatterVelocities: Float32Array | null = null;
+    let scatterDone = false;
 
     function ease(t: number) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
     function animate(ts: number) {
       if (!startTime) startTime = ts;
       const el = (ts - startTime) / 1000;
+
+      // Initiate scatter when bloom is done and trigger fires
+      if (completed && !scattering && !scatterDone && triggerScatterRef.current) {
+        scattering = true;
+        scatterStartTime = ts;
+        const pos = geometry.attributes.position as THREE.BufferAttribute;
+        scatterStartPos = new Float32Array(totalPts * 3);
+        scatterVelocities = new Float32Array(totalPts * 3);
+        for (let i = 0; i < totalPts; i++) {
+          scatterStartPos[i * 3]     = pos.getX(i);
+          scatterStartPos[i * 3 + 1] = pos.getY(i);
+          scatterStartPos[i * 3 + 2] = pos.getZ(i);
+          const angle = Math.random() * Math.PI * 2;
+          const elevation = (Math.random() - 0.5) * Math.PI;
+          const speed = 1.5 + Math.random() * 2.5;
+          scatterVelocities[i * 3]     = Math.cos(elevation) * Math.cos(angle) * speed;
+          scatterVelocities[i * 3 + 1] = Math.sin(elevation) * speed;
+          scatterVelocities[i * 3 + 2] = Math.cos(elevation) * Math.sin(angle) * speed;
+        }
+      }
+
+      // Run scatter animation
+      if (scattering && scatterStartTime !== null && scatterStartPos && scatterVelocities) {
+        const st = Math.min((ts - scatterStartTime) / 1600, 1);
+        const pos = geometry.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < totalPts; i++) {
+          pos.setX(i, scatterStartPos[i * 3]     + scatterVelocities[i * 3]     * st);
+          pos.setY(i, scatterStartPos[i * 3 + 1] + scatterVelocities[i * 3 + 1] * st);
+          pos.setZ(i, scatterStartPos[i * 3 + 2] + scatterVelocities[i * 3 + 2] * st);
+        }
+        pos.needsUpdate = true;
+        material.opacity = (1 - st) * 0.95;
+        particles.rotation.y = 0.6 + (el - 2.0) * 0.025;
+        particles.rotation.x = 0.8;
+        renderer.render(scene, camera);
+        if (st >= 1 && !scatterDone) {
+          scatterDone = true;
+          onScatterCompleteRef.current?.();
+          return;
+        }
+        animId = requestAnimationFrame(animate);
+        return;
+      }
 
       if (el >= 8.5) {
         if (!completed) { completed = true; onAnimationComplete?.(); }
