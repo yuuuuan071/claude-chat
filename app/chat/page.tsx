@@ -147,6 +147,9 @@ export default function ChatPage() {
   const [replyingTo, setReplyingTo] = useState<{ postId: string; commentIdx: number } | null>(null)
   const [replyDraft, setReplyDraft] = useState('')
   const [generatingReplyFor, setGeneratingReplyFor] = useState<Set<string>>(new Set())
+  const [ambientSound, setAmbientSound] = useState<string | null>(null)
+  const [ambientVolume, setAmbientVolume] = useState(0.3)
+  const ambientAudioRef = useRef<HTMLAudioElement | null>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -189,6 +192,10 @@ export default function ChatPage() {
         if (savedConfigs) setApiConfigs(JSON.parse(savedConfigs))
         const savedActive = localStorage.getItem(ACTIVE_CONFIG_KEY)
         if (savedActive) setActiveConfigName(savedActive)
+        const savedAmbient = localStorage.getItem('ambient-sound')
+        if (savedAmbient) setAmbientSound(savedAmbient)
+        const savedAmbientVol = localStorage.getItem('ambient-volume')
+        if (savedAmbientVol) setAmbientVolume(parseFloat(savedAmbientVol))
       } catch {}
       setMemoryItems(loadMemory())
       try {
@@ -224,6 +231,49 @@ export default function ChatPage() {
   useEffect(() => {
     if (mounted) saveMemory(memoryItems)
   }, [memoryItems, mounted])
+
+  useEffect(() => {
+    if (!mounted) return
+    if (ambientSound) {
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause()
+        ambientAudioRef.current = null
+      }
+      const audio = new Audio(`/audio/${ambientSound}.mp3`)
+      audio.loop = true
+      audio.volume = ambientVolume
+      audio.play().catch(() => {})
+      ambientAudioRef.current = audio
+    } else {
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause()
+        ambientAudioRef.current = null
+      }
+    }
+    return () => {
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.pause()
+        ambientAudioRef.current = null
+      }
+    }
+  }, [ambientSound, mounted])
+
+  useEffect(() => {
+    if (ambientAudioRef.current) {
+      ambientAudioRef.current.volume = ambientVolume
+    }
+  }, [ambientVolume])
+
+  useEffect(() => {
+    if (mounted) {
+      if (ambientSound) localStorage.setItem('ambient-sound', ambientSound)
+      else localStorage.removeItem('ambient-sound')
+    }
+  }, [ambientSound, mounted])
+
+  useEffect(() => {
+    if (mounted) localStorage.setItem('ambient-volume', String(ambientVolume))
+  }, [ambientVolume, mounted])
 
   useEffect(() => {
     if (editingId && editInputRef.current) {
@@ -639,6 +689,13 @@ export default function ChatPage() {
 
   const SUMMARY_THRESHOLD = 10
   const KEEP_RECENT = 4
+
+  const toggleMark = (msgIndex: number) => {
+    const newMessages = messages.map((msg, i) =>
+      i === msgIndex ? { ...msg, marked: !msg.marked } : msg
+    )
+    updateCurrentMessages(newMessages)
+  }
 
   const editMessage = (msgIndex: number) => {
     const msg = messages[msgIndex]
@@ -1262,6 +1319,38 @@ export default function ChatPage() {
                 return getPersonaById(pid)?.name ?? 'Claude'
               })()}
             </span>
+            <div className="flex items-center gap-1 shrink-0">
+              {[
+                { key: 'rain', label: '雨' },
+                { key: 'forest', label: '林' },
+                { key: 'water', label: '水' },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setAmbientSound(prev => prev === key ? null : key)}
+                  className="transition-all rounded-md px-1.5 py-0.5"
+                  style={{
+                    fontSize: '0.65rem',
+                    color: ambientSound === key ? t.headerText : t.buttonText,
+                    opacity: ambientSound === key ? 1 : 0.5,
+                    background: ambientSound === key ? t.userBubble : 'transparent',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              {ambientSound && (
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={ambientVolume}
+                  onChange={e => setAmbientVolume(parseFloat(e.target.value))}
+                  style={{ width: '50px', accentColor: t.sendButton }}
+                />
+              )}
+            </div>
             <button
               onClick={handleGoHome}
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
@@ -1603,7 +1692,7 @@ export default function ChatPage() {
                     {msg.role === 'user' ? (
                       <div
                         className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "")}
-                        style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)' }}
+                        style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)', boxShadow: msg.marked ? 'inset 3px 0 0 #e8a87c' : undefined }}
                       >
                         {msg.content}
                       </div>
@@ -1617,7 +1706,7 @@ return (
                             <div
                               key={si}
                               className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "") + (si < segments.length - 1 ? " mb-1" : "")}
-                              style={{ background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)' }}
+                              style={{ background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)', boxShadow: msg.marked ? 'inset 3px 0 0 #e8a87c' : undefined }}
                             >
                               <ReactMarkdown
                                 components={{
@@ -1692,6 +1781,13 @@ return (
                             ✏️
                           </button>
                         )}
+                        <button
+                          onClick={() => toggleMark(i)}
+                          className="transition-opacity hover:opacity-100"
+                          style={{ fontSize: '0.72rem', color: msg.marked ? '#e8a87c' : t.timestampText, opacity: msg.marked ? 0.9 : 0.35, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
+                        >
+                          {msg.marked ? '♥' : '♡'}
+                        </button>
                       </div>
                     )}
                   </div>
