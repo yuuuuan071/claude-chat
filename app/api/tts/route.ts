@@ -1,5 +1,5 @@
 export async function POST(req: Request) {
-  const { text, voice = 'male-qn-qingse' } = await req.json()
+  const { text, voice = 'male-qn-qingse', speed = 1.0 } = await req.json()
 if (!text?.trim()) return Response.json({ error: 'text is required' }, { status: 400 })
 
   const apiKey = process.env.MINIMAX_API_KEY
@@ -13,7 +13,7 @@ if (!text?.trim()) return Response.json({ error: 'text is required' }, { status:
       model: 'speech-2.8-hd',
       text,
       stream: false,
-      voice_setting: { voice_id: voice, speed: 1.0, vol: 1.0, pitch: 0 },
+      voice_setting: { voice_id: voice, speed, vol: 1.0, pitch: 0 },
       audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3', channel: 1 },
     }),
   })

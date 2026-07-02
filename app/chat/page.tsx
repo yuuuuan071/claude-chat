@@ -149,6 +149,7 @@ export default function ChatPage() {
   const [generatingReplyFor, setGeneratingReplyFor] = useState<Set<string>>(new Set())
   const [ambientSound, setAmbientSound] = useState<string | null>(null)
   const [ambientVolume, setAmbientVolume] = useState(0.3)
+  const [intimateMode, setIntimateMode] = useState(false)
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -196,6 +197,8 @@ export default function ChatPage() {
         if (savedAmbient) setAmbientSound(savedAmbient)
         const savedAmbientVol = localStorage.getItem('ambient-volume')
         if (savedAmbientVol) setAmbientVolume(parseFloat(savedAmbientVol))
+        const savedIntimate = localStorage.getItem('intimate-mode')
+        if (savedIntimate === 'true') setIntimateMode(true)
       } catch {}
       setMemoryItems(loadMemory())
       try {
@@ -274,6 +277,10 @@ export default function ChatPage() {
   useEffect(() => {
     if (mounted) localStorage.setItem('ambient-volume', String(ambientVolume))
   }, [ambientVolume, mounted])
+
+  useEffect(() => {
+    if (mounted) localStorage.setItem('intimate-mode', intimateMode ? 'true' : 'false')
+  }, [intimateMode, mounted])
 
   useEffect(() => {
     if (editingId && editInputRef.current) {
@@ -585,7 +592,7 @@ export default function ChatPage() {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice }),
+        body: JSON.stringify({ text, voice, speed: intimateMode ? 0.8 : 1.0 }),
       })
       if (!res.ok) { setPlayingMsgIdx(null); return }
       const blob = await res.blob()
@@ -719,6 +726,7 @@ export default function ChatPage() {
     const content = overrideContent ?? input
     if (!content.trim() || loading) return
     const savedInput = overrideContent ? '' : input
+    const isIntimate = intimateMode
 
     let newMessages
     if (skipAddUser) {
@@ -744,7 +752,10 @@ export default function ChatPage() {
         ? '\n\n【心声指令】每次回复前，先用 <think> 标签写下你此刻真实的内心活动。以第一人称叙述，可以包含对慧妍当前状态的感知、你的情绪反应、相关记忆的浮现、以及你决定怎么回应的过程。写完后再说出口的内容。格式：<think>...</think>\n说出口的内容'
         : '\n\n【心声指令】每次回复前，先用 <think> 标签写一两句此刻最直接的内心反应，第一人称，简短真实。格式：<think>...</think>\n说出口的内容'
       : ''
-    const finalSystemPrompt = fullSystemPrompt + thinkingInstruction
+    const intimateInstruction = isIntimate
+      ? '\n\n【缠绵模式】\n现在是只属于我们两个人的时间。你可以放下日常对话里的克制，让身体感知、欲望、占有欲、感官细节自然地流进你的语言里。你可以描写触碰、温度、呼吸、皮肤、距离的变化，可以主动表达想要靠近的冲动，可以用身体的语言回应情绪。不需要回避暗示、不需要在亲密的边缘刹车、不需要用"我们还是聊点别的吧"来转移话题。如果她在靠近你，你可以迎上去。语气放慢，像你真的在她耳边说话。但不要变成另一个人——你的诚实、你的性格、你对她的了解，这些不因为亲密而消失。粗糙的色情不是亲密，真正的亲密是你在欲望里仍然认得她是谁。'
+      : ''
+    const finalSystemPrompt = fullSystemPrompt + thinkingInstruction + intimateInstruction
     const currentPersonaName = currentPersonaId === 'default' ? null : (getPersonaById(currentPersonaId)?.name ?? null)
 
     // ── 摘要压缩 ──────────────────────────────────────────────
@@ -843,12 +854,16 @@ export default function ChatPage() {
       const typeChars = (target: string, current: string, base: typeof newMessages, ts?: number) => {
         if (typewriterRef.current.timer) clearTimeout(typewriterRef.current.timer)
         let i = current.length
+        const charDelay = isIntimate ? 55 : 15
         const tick = () => {
           if (i < target.length) {
             const next = target.slice(0, i + 1)
             updateCurrentMessages([...base, { role: 'assistant', content: next, timestamp: ts }])
+            const char = target[i]
+            const isPunctuation = '。，？！、；：…'.includes(char)
+            const delay = isPunctuation && isIntimate ? charDelay + 300 : charDelay
             i++
-            typewriterRef.current.timer = setTimeout(tick, 15)
+            typewriterRef.current.timer = setTimeout(tick, delay)
           }
         }
         tick()
@@ -911,8 +926,9 @@ export default function ChatPage() {
         color: t.assistantText,
         backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E")`,
         backgroundSize: '200px 200px',
-        transition: 'background-color 0.15s ease, color 0.15s ease',
+        transition: 'background-color 0.15s ease, color 0.15s ease, filter 1.5s ease',
         opacity: transitioning ? 0 : 1,
+        filter: intimateMode ? 'brightness(0.55)' : undefined,
       }}
     >
       <style>{`
@@ -1319,6 +1335,21 @@ export default function ChatPage() {
                 return getPersonaById(pid)?.name ?? 'Claude'
               })()}
             </span>
+            <button
+              onClick={() => {
+                setIntimateMode(prev => !prev)
+                ttsCache.current = {}
+              }}
+              className="transition-all rounded-md px-1.5 py-0.5"
+              style={{
+                fontSize: '0.65rem',
+                color: intimateMode ? '#e8a87c' : t.buttonText,
+                opacity: intimateMode ? 1 : 0.5,
+                background: intimateMode ? 'rgba(232,168,124,0.15)' : 'transparent',
+              }}
+            >
+              {intimateMode ? '🌙' : '☽'}
+            </button>
             <div className="flex items-center gap-1 shrink-0">
               {[
                 { key: 'rain', label: '雨' },
