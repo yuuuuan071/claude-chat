@@ -120,16 +120,13 @@ export default function RainEffect({ opacity = 0.8 }: { opacity?: number }) {
         float cy = Drops(uv+e.yx, t, staticDrops, layer1, layer2).x;
         vec2 n = vec2(cx-c.x, cy-c.x);
 
-        // cover 模式：图片填满屏幕，从顶部对齐
         float imgRatio = 4.0 / 3.0;
         float screenRatio = iResolution.x / iResolution.y;
         vec2 bgUV = vec2(UV.x, 1.0 - UV.y);
         if (screenRatio > imgRatio) {
-          // 屏幕更宽：左右填满，上下裁切，从顶部对齐
           float scale = screenRatio / imgRatio;
           bgUV.y = bgUV.y / scale;
         } else {
-          // 屏幕更窄：上下填满，左右裁切，居中
           float scale = imgRatio / screenRatio;
           bgUV.x = (bgUV.x - 0.5) / scale + 0.5;
         }
