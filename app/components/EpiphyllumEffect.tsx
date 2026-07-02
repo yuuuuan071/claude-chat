@@ -3,6 +3,8 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
+let hasBloomedOnce = false;
+
 interface EpiphyllumProps {
   onAnimationComplete?: () => void;
   onScatterComplete?: () => void;
@@ -222,7 +224,7 @@ export default function EpiphyllumEffect({ onAnimationComplete, onScatterComplet
       }
 
       if (el >= 8.5) {
-        if (!completed) { completed = true; onAnimationComplete?.(); }
+        if (!completed) { completed = true; hasBloomedOnce = true; onAnimationComplete?.(); }
         particles.rotation.y = 0.6 + (el - 2.0) * 0.025;
         particles.rotation.x = 0.8;
         renderer.render(scene, camera);
@@ -251,6 +253,14 @@ export default function EpiphyllumEffect({ onAnimationComplete, onScatterComplet
 
       renderer.render(scene, camera);
       animId = requestAnimationFrame(animate);
+    }
+    if (hasBloomedOnce) {
+      completed = true;
+      currentPos.set(allPos);
+      geometry.attributes.position.needsUpdate = true;
+      material.opacity = 0.95;
+      startTime = performance.now() - 9000;
+      onAnimationComplete?.();
     }
     animId = requestAnimationFrame(animate);
 

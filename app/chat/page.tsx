@@ -253,6 +253,8 @@ export default function ChatPage() {
   useEffect(() => {
     if (!mounted) return
 
+    fetch('/api/keepalive').catch(() => {})
+
     // 天气
     fetch('/api/weather')
       .then(r => r.json())
@@ -638,9 +640,28 @@ export default function ChatPage() {
   const SUMMARY_THRESHOLD = 10
   const KEEP_RECENT = 4
 
+  const editMessage = (msgIndex: number) => {
+    const msg = messages[msgIndex]
+    if (!msg || msg.role !== 'user' || loading) return
+    setInput(msg.content)
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto'
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.style.height = `${inputRef.current.scrollHeight}px`
+          inputRef.current.focus()
+        }
+      }, 0)
+    }
+    const trimmed = messages.slice(0, msgIndex)
+    updateCurrentMessages(trimmed)
+    setAnimatedIds(new Set())
+  }
+
   const sendMessage = async (overrideContent?: string, skipAddUser?: boolean) => {
     const content = overrideContent ?? input
     if (!content.trim() || loading) return
+    const savedInput = overrideContent ? '' : input
 
     let newMessages
     if (skipAddUser) {
@@ -744,6 +765,13 @@ export default function ChatPage() {
           ? { ...c, messages: [...newMessages, { role: 'assistant' as const, content: errContent }], updatedAt: Date.now() }
           : c
         ))
+        if (savedInput) {
+          setInput(savedInput)
+          if (inputRef.current) {
+            inputRef.current.style.height = 'auto'
+            inputRef.current.style.height = `${inputRef.current.scrollHeight}px`
+          }
+        }
         setLoading(false)
         return
       }
@@ -796,6 +824,13 @@ export default function ChatPage() {
       }
     } catch (e) {
       console.error(e)
+      if (savedInput) {
+        setInput(savedInput)
+        if (inputRef.current) {
+          inputRef.current.style.height = 'auto'
+          inputRef.current.style.height = `${inputRef.current.scrollHeight}px`
+        }
+      }
     } finally {
       setLoading(false)
       if (newMessages.length >= 2) {
@@ -1647,6 +1682,15 @@ return (
                               </button>
                             )}
                           </>
+                        )}
+                        {msg.role === 'user' && (
+                          <button
+                            onClick={() => editMessage(i)}
+                            className="transition-opacity hover:opacity-100"
+                            style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
+                          >
+                            ✏️
+                          </button>
                         )}
                       </div>
                     )}
