@@ -727,6 +727,15 @@ export default function ChatPage() {
     if (!content.trim() || loading) return
     const savedInput = overrideContent ? '' : input
     const isIntimate = intimateMode
+    const apiPayload = getApiConfigForRequest()
+    const intimateApiOverride = isIntimate ? (() => {
+      const configs: ApiConfig[] = JSON.parse(localStorage.getItem(API_CONFIGS_KEY) || '[]')
+      const grokConfig = configs.find(c => c.name.toLowerCase().includes('grok'))
+      if (grokConfig) {
+        return { devMode: false as const, apiConfig: grokConfig }
+      }
+      return apiPayload
+    })() : apiPayload
 
     let newMessages
     if (skipAddUser) {
@@ -822,7 +831,7 @@ export default function ChatPage() {
           messages: messagesForAPI,
           systemPrompt: systemPromptWithMemory || undefined,
           personaName: currentPersonaName ?? undefined,
-          ...getApiConfigForRequest(),
+          ...intimateApiOverride,
         }),
       })
 
