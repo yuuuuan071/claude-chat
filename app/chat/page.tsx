@@ -922,7 +922,10 @@ export default function ChatPage() {
             updateCurrentMessages([...base, { role: 'assistant', content: next, timestamp: ts }])
             const char = target[i]
             const isPunctuation = '。，？！、；：…'.includes(char)
-            const delay = isPunctuation && isIntimate ? charDelay + 300 : charDelay
+            const isSentenceEnd = '。？！'.includes(char)
+            const delay = isPunctuation && isIntimate
+              ? charDelay + 300 + (isSentenceEnd ? 300 : 0)
+              : charDelay
             i++
             typewriterRef.current.timer = setTimeout(tick, delay)
           }
@@ -1850,7 +1853,7 @@ return (
                             <div
                               key={si}
                               className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "") + (si < segments.length - 1 ? " mb-1" : "")}
-                              style={{ background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)', boxShadow: msg.marked ? 'inset 3px 0 0 #e8a87c' : undefined }}
+                              style={{ background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)', boxShadow: [msg.marked ? 'inset 3px 0 0 #e8a87c' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined }}
                             >
                               <ReactMarkdown
                                 components={{
