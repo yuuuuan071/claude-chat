@@ -1,6 +1,7 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 
 export async function GET(req: Request) {
+  const supabase = getSupabase()
   const { searchParams } = new URL(req.url)
   const persona_id = searchParams.get('persona_id')
   const user_id = searchParams.get('user_id') || 'huiyan'
@@ -19,6 +20,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const supabase = getSupabase()
   const body = await req.json()
   const { persona_id, type, content, user_id = 'huiyan' } = body
 
@@ -37,6 +39,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const supabase = getSupabase()
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return Response.json({ error: 'missing id' }, { status: 400 })

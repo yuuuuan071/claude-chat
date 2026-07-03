@@ -1,7 +1,8 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { generateId } from '@/app/utils'
 
 export async function GET() {
+  const supabase = getSupabase()
   const { data, error } = await supabase
     .from('personas')
     .select('*')
@@ -12,6 +13,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const supabase = getSupabase()
   const body = await req.json()
   const { id, name, color, system_prompt, description, age, gender, constellation, signature, note, tags, is_custom } = body
 

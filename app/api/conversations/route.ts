@@ -1,7 +1,8 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 import { generateId } from '@/app/utils'
 
 export async function GET(req: Request) {
+  const supabase = getSupabase()
   const { searchParams } = new URL(req.url)
   const personaId = searchParams.get('persona_id')
 
@@ -18,6 +19,7 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const supabase = getSupabase()
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
   if (!id) return Response.json({ error: 'id is required' }, { status: 400 })
@@ -28,7 +30,13 @@ export async function DELETE(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json()
+  const supabase = getSupabase()
+  let body: { id?: string; persona_id?: string | null; title?: string; messages?: unknown[]; summary?: string; summarized_count?: number }
+  try {
+    body = await req.json()
+  } catch {
+    return Response.json({ error: 'invalid JSON body' }, { status: 400 })
+  }
   const { id, persona_id, title, messages, summary, summarized_count } = body
 
   const payload = {

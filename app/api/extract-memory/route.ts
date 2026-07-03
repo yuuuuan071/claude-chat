@@ -1,6 +1,7 @@
-import { supabase } from '@/lib/supabase'
+import { getSupabase } from '@/lib/supabase'
 
 export async function POST(req: Request) {
+  const supabase = getSupabase()
   const { messages, persona_id, user_id = 'huiyan' } = await req.json()
   if (!messages || messages.length < 2) return Response.json({ skipped: true })
 

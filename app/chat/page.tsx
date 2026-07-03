@@ -12,6 +12,7 @@ import {
   getTitleFromMessages,
   loadConversationsFromDB,
   saveConversationToDB,
+  buildConversationPayload,
 } from '../conversations'
 import {
   type MemoryItem,
@@ -158,6 +159,9 @@ export default function ChatPage() {
   const editInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const typewriterRef = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null })
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSaveRef = useRef(false)
+  const conversationsRef = useRef<Conversation[]>([])
 
   const t = themes[themeKey]
   const currentConversation = conversations.find(c => c.id === currentId)
@@ -227,9 +231,35 @@ export default function ChatPage() {
   }, [mounted])
 
   useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
+
+  useEffect(() => {
     if (!mounted) return
-    conversations.forEach(conv => saveConversationToDB(conv))
+    pendingSaveRef.current = true
+    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+    saveDebounceRef.current = setTimeout(() => {
+      pendingSaveRef.current = false
+      conversations.forEach((conv) => saveConversationToDB(conv))
+    }, 1000)
+    return () => {
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+    }
   }, [conversations, mounted])
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (!pendingSaveRef.current) return
+      if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current)
+      pendingSaveRef.current = false
+      conversationsRef.current.forEach((conv) => {
+        const payload = buildConversationPayload(conv)
+        navigator.sendBeacon('/api/conversations', new Blob([JSON.stringify(payload)], { type: 'application/json' }))
+      })
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   useEffect(() => {
     if (mounted) saveMemory(memoryItems)
@@ -902,6 +932,21 @@ export default function ChatPage() {
             }
           } catch {}
         }
+      }
+
+      if (assistantAdded) {
+        const finalMessages = [...newMessages, { role: 'assistant' as const, content: assistantContent, timestamp: assistantTimestamp }]
+        const finalConv: Conversation = {
+          id: currentId,
+          title: currentConversation?.title ?? '新对话',
+          messages: finalMessages,
+          createdAt: currentConversation?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+          personaId: currentConversation?.personaId,
+          summary,
+          summarizedCount,
+        }
+        await saveConversationToDB(finalConv)
       }
     } catch (e) {
       console.error(e)

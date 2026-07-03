@@ -67,19 +67,48 @@ export const loadConversationsFromDB = async (): Promise<Conversation[]> => {
   }
 }
 
-export const saveConversationToDB = async (conv: Conversation): Promise<void> => {
-  try {
-    await fetch('/api/conversations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: conv.id,
-        title: conv.title,
-        messages: conv.messages,
-        persona_id: conv.personaId,
-        summary: conv.summary,
-        summarized_count: conv.summarizedCount,
-      }),
-    })
-  } catch {}
+const saveAbortControllers: Record<string, AbortController> = {}
+
+export const nextSaveSignal = (id: string): AbortSignal => {
+  saveAbortControllers[id]?.abort()
+  const controller = new AbortController()
+  saveAbortControllers[id] = controller
+  return controller.signal
+}
+
+export const buildConversationPayload = (conv: Conversation) => ({
+  id: conv.id,
+  title: conv.title,
+  messages: conv.messages,
+  persona_id: conv.personaId,
+  summary: conv.summary,
+  summarized_count: conv.summarizedCount,
+})
+
+export const saveConversationToDB = async (conv: Conversation): Promise<boolean> => {
+  const payload = buildConversationPayload(conv)
+
+  const attempt = async (): Promise<'ok' | 'failed' | 'aborted'> => {
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: nextSaveSignal(conv.id),
+      })
+      return res.ok ? 'ok' : 'failed'
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return 'aborted'
+      console.error('保存会话到 Supabase 请求异常:', e)
+      return 'failed'
+    }
+  }
+
+  const first = await attempt()
+  if (first === 'ok') return true
+  if (first === 'aborted') return false
+
+  const second = await attempt()
+  if (second === 'failed') console.error('保存会话到 Supabase 失败（已重试一次）:', conv.id)
+  return second === 'ok'
 }
