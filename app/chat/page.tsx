@@ -42,6 +42,28 @@ async function streamToString(res: Response): Promise<string> {
   return result.trim()
 }
 
+type StreamPhase = 'waiting' | 'thinking' | 'typing'
+
+function classifyStreamContent(content: string): { phase: StreamPhase; thinkText: string; mainText: string } {
+  if (content === '') return { phase: 'waiting', thinkText: '', mainText: '' }
+
+  const closed = content.match(/<(think|thinking)>([\s\S]*?)<\/\1>\n?/)
+  if (closed) {
+    return { phase: 'typing', thinkText: closed[2], mainText: content.slice(closed.index! + closed[0].length) }
+  }
+
+  const openTags = ['<think>', '<thinking>']
+  const openTag = openTags.find(tag => content.startsWith(tag))
+  if (openTag) {
+    return { phase: 'thinking', thinkText: content.slice(openTag.length), mainText: '' }
+  }
+
+  const stillAmbiguous = openTags.some(tag => tag.startsWith(content))
+  if (stillAmbiguous) return { phase: 'waiting', thinkText: '', mainText: '' }
+
+  return { phase: 'typing', thinkText: '', mainText: content }
+}
+
 function getClothingAdvice(temp: number): string {
   if (temp < 10) return '记得穿厚一点'
   if (temp < 20) return '薄外套就够'
@@ -993,6 +1015,13 @@ export default function ChatPage() {
         .bubble-animate {
           animation: bubbleIn 0.22s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
         }
+        @keyframes fadeIn {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        .status-fade-in {
+          animation: fadeIn 0.3s ease;
+        }
         .sidebar-item:hover .delete-btn { opacity: 1; }
         @keyframes menuIn {
           0% { opacity: 0; transform: translateY(6px) scale(0.97); }
@@ -1752,13 +1781,32 @@ export default function ChatPage() {
                 {messages.length === 0 && (
                   <div className="text-center mt-20 text-sm" style={{ color: t.emptyText }}>开始对话吧</div>
                 )}
-                {(() => { const lastAsstIdx = messages.map(m => m.role).lastIndexOf('assistant'); return messages.map((msg, i) => (
+                {(() => { const lastAsstIdx = messages.map(m => m.role).lastIndexOf('assistant'); return messages.map((msg, i) => {
+                  const isStreamingRow = loading && i === messages.length - 1 && msg.role === 'assistant'
+                  const streamInfo = isStreamingRow ? classifyStreamContent(msg.content) : null
+                  return (
                   <div
                     key={i}
                     className={`flex flex-col ${msg.role === 'user' ? 'items-end pr-4' : 'items-start pl-4'}`}
                   >
                     {animatedIds.has(i) && <style>{`.bubble-${i}{animation:bubbleIn 0.25s ease}`}</style>}
                     {msg.role === 'assistant' && (() => {
+                      if (!thinkingEnabled) return null
+                      if (streamInfo) {
+                        if (streamInfo.phase === 'waiting') return null
+                        if (streamInfo.phase === 'typing' && !streamInfo.thinkText) return null
+                        return (
+                          <details open={streamInfo.phase === 'thinking'} className="mb-1 max-w-[70%]" style={{ fontSize: '0.72rem' }}>
+                            <summary style={{ cursor: 'pointer', color: t.settingsSubText, listStyle: 'none', display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px', userSelect: 'none' }}>
+                              <span style={{ fontSize: '0.65rem', opacity: 0.7 }}>💭</span>
+                              <span style={{ opacity: 0.7 }}>心声</span>
+                            </summary>
+                            <div style={{ marginTop: '4px', padding: '8px 10px', borderRadius: '10px', background: t.settingsBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsSubText, fontStyle: 'italic', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                              {streamInfo.thinkText}
+                            </div>
+                          </details>
+                        )
+                      }
                       const thinkMatch = msg.content.match(/<(think|thinking)>([\s\S]*?)<\/\1>/)
                       if (!thinkMatch) return null
                       const thinkContent = thinkMatch[2]
@@ -1782,13 +1830,20 @@ export default function ChatPage() {
                         {msg.content}
                       </div>
                     ) : (() => {
-                      const cleanContent = (() => {
-                        const stripped = msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '')
-                        const dangling = stripped.match(/<(?:think|thinking)>/)
-                        return dangling ? stripped.slice(0, dangling.index) : stripped
-                      })()
-                      const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim()).filter(s => !/^[-—\s]+$/.test(s.trim()))
-                      const segments = rawSegments.length === 0 ? [''] : rawSegments
+                      let segments: string[]
+                      if (streamInfo) {
+                        if (!streamInfo.mainText) return null
+                        const rawSegments = streamInfo.mainText.split(/\n\n+/).filter(s => s.trim()).filter(s => !/^[-—\s]+$/.test(s.trim()))
+                        segments = rawSegments.length === 0 ? [streamInfo.mainText] : rawSegments
+                      } else {
+                        const cleanContent = (() => {
+                          const stripped = msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '')
+                          const dangling = stripped.match(/<(?:think|thinking)>/)
+                          return dangling ? stripped.slice(0, dangling.index) : stripped
+                        })()
+                        const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim()).filter(s => !/^[-—\s]+$/.test(s.trim()))
+                        segments = rawSegments.length === 0 ? [''] : rawSegments
+                      }
 return (
                         <>
                           {segments.map((seg, si) => (
@@ -1880,12 +1935,18 @@ return (
                       </div>
                     )}
                   </div>
-                ))})()}
-                {loading && messages[messages.length - 1]?.role !== 'assistant' && (
-                  <div className="flex justify-start">
-                    <div className="text-sm px-4 py-3" style={{ color: t.emptyText }}>...</div>
-                  </div>
-                )}
+                  )
+                })})()}
+                {loading && (() => {
+                  const lastMsg = messages[messages.length - 1]
+                  const phase = lastMsg?.role === 'assistant' ? classifyStreamContent(lastMsg.content).phase : 'waiting'
+                  const text = phase === 'typing' ? 'TA正在输入…' : 'TA正在思考…'
+                  return (
+                    <div className="flex justify-start pl-4">
+                      <div key={text} className="status-fade-in" style={{ color: t.timestampText, fontSize: '0.8rem' }}>{text}</div>
+                    </div>
+                  )
+                })()}
                 <div ref={bottomRef} />
               </div>
               {/* 输入框 */}
