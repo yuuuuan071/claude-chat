@@ -13,15 +13,14 @@ export async function POST(req: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
 
-  const res = await fetch(`${baseUrl}/v1/messages`, {
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey!,
-      'anthropic-version': '2023-06-01',
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'anthropic/claude-haiku-4.5',
       max_tokens: 500,
       messages: [{
         role: 'user',
@@ -40,15 +39,27 @@ ${recent}`
     })
   })
 
-  if (!res.ok) return Response.json({ error: 'extraction failed' }, { status: 500 })
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    console.error('extract-memory: upstream error', res.status, errText.slice(0, 500))
+    return Response.json({ error: `记忆提取失败：上游 API 错误 (${res.status})` }, { status: 500 })
+  }
 
-  const data = await res.json()
-  const text = data.content?.[0]?.text?.trim() || '[]'
+  let data: { choices?: Array<{ message?: { content?: string } }> }
+  try {
+    data = await res.json()
+  } catch (e) {
+    console.error('extract-memory: failed to parse upstream response:', e)
+    return Response.json({ error: '记忆提取失败：上游响应解析出错' }, { status: 500 })
+  }
+  const text = data.choices?.[0]?.message?.content?.trim() || '[]'
 
   let items: Array<{type: string, content: string}> = []
   try {
-    items = JSON.parse(text)
-  } catch {
+    const cleaned = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim()
+    items = JSON.parse(cleaned)
+  } catch (e) {
+    console.error('extract-memory: failed to parse extracted JSON:', e, 'raw text:', text)
     return Response.json({ skipped: true })
   }
 
