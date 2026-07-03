@@ -174,6 +174,7 @@ export default function ChatPage() {
   const [ambientVolume, setAmbientVolume] = useState(0.3)
   const [intimateMode, setIntimateMode] = useState(false)
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null)
+  const prevAmbientRef = useRef<{ sound: string | null; volume: number } | null>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -332,6 +333,20 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (mounted) localStorage.setItem('intimate-mode', intimateMode ? 'true' : 'false')
+  }, [intimateMode, mounted])
+
+  useEffect(() => {
+    if (!mounted) return
+    if (intimateMode) {
+      prevAmbientRef.current = { sound: ambientSound, volume: ambientVolume }
+      setAmbientSound('rain')
+      setAmbientVolume(0.3)
+    } else if (prevAmbientRef.current) {
+      setAmbientSound(prevAmbientRef.current.sound)
+      setAmbientVolume(prevAmbientRef.current.volume)
+      prevAmbientRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intimateMode, mounted])
 
   useEffect(() => {
