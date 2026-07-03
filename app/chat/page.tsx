@@ -1759,9 +1759,9 @@ export default function ChatPage() {
                   >
                     {animatedIds.has(i) && <style>{`.bubble-${i}{animation:bubbleIn 0.25s ease}`}</style>}
                     {msg.role === 'assistant' && (() => {
-                      const thinkMatch = msg.content.match(/^<think>([\s\S]*?)<\/think>\n?/)
+                      const thinkMatch = msg.content.match(/<(think|thinking)>([\s\S]*?)<\/\1>/)
                       if (!thinkMatch) return null
-                      const thinkContent = thinkMatch[1]
+                      const thinkContent = thinkMatch[2]
                       return (
                         <details className="mb-1 max-w-[70%]" style={{ fontSize: '0.72rem' }}>
                           <summary style={{ cursor: 'pointer', color: t.settingsSubText, listStyle: 'none', display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px', userSelect: 'none' }}>
@@ -1782,8 +1782,12 @@ export default function ChatPage() {
                         {msg.content}
                       </div>
                     ) : (() => {
-                      const cleanContent = msg.content.startsWith('<think>') && !msg.content.includes('</think>') ? '' : msg.content.replace(/^<think>[\s\S]*?<\/think>\n?/, '')
-                      const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim()).filter(s => s.replace(/^<think>[\s\S]*?<\/think>\n?/, '').trim() !== '').filter(s => !/^[-—\s]+$/.test(s.trim()))
+                      const cleanContent = (() => {
+                        const stripped = msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '')
+                        const dangling = stripped.match(/<(?:think|thinking)>/)
+                        return dangling ? stripped.slice(0, dangling.index) : stripped
+                      })()
+                      const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim()).filter(s => !/^[-—\s]+$/.test(s.trim()))
                       const segments = rawSegments.length === 0 ? [''] : rawSegments
 return (
                         <>
@@ -1840,7 +1844,7 @@ return (
                         {msg.role === 'assistant' && (
                           <>
                             <button
-                              onClick={() => playTTS(i, msg.content.replace(/^<think>[\s\S]*?<\/think>\n?/, ''))}
+                              onClick={() => playTTS(i, msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, ''))}
                               className="transition-opacity hover:opacity-100"
                               style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
                             >
