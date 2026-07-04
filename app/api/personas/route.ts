@@ -15,7 +15,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const supabase = getSupabase()
   const body = await req.json()
-  const { id, name, color, system_prompt, description, age, gender, constellation, signature, note, tags, is_custom } = body
+  const { id, name, color, system_prompt, description, age, gender, constellation, signature, note, tags, is_custom, voice_id, default_ambient, default_intimate } = body
 
   if (!name || typeof name !== 'string') {
     return Response.json({ error: 'name is required' }, { status: 400 })
@@ -34,6 +34,9 @@ export async function POST(req: Request) {
     note: note ?? null,
     tags: tags ?? [],
     is_custom: is_custom ?? true,
+    voice_id: voice_id ?? null,
+    default_ambient: default_ambient ?? null,
+    default_intimate: default_intimate ?? false,
   }
 
   const { data, error } = await supabase

@@ -767,7 +767,7 @@ export default function ChatPage() {
     if (editingPersonaId === '__new__') {
       if (!newPersonaName.trim()) return
       const id = `custom-${Date.now()}`
-      const p: Persona = { id, name: newPersonaName.trim(), color: '#9a9a9a', description: '', systemPrompt: systemPromptDraft }
+      const p: Persona = { id, name: newPersonaName.trim(), color: '#9a9a9a', description: '', system_prompt: systemPromptDraft, systemPrompt: systemPromptDraft }
       const next = [...customPersonas, p]
       setCustomPersonas(next)
       localStorage.setItem('custom-personas', JSON.stringify(next))
