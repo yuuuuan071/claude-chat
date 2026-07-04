@@ -21,7 +21,7 @@ import {
   createMemoryItem,
   buildMemoryPrompt,
 } from '../memory'
-import { type Persona, BUILT_IN_PERSONAS, DEFAULT_PROMPT, getPersonaById } from '../personas'
+import { type Persona, FALLBACK_PERSONAS, adaptPersona } from '../personas'
 import { generateId } from '../utils'
 
 async function streamToString(res: Response): Promise<string> {
@@ -98,7 +98,7 @@ const DEFAULT_API_DRAFT: ApiConfig = {
 const API_CONFIGS_KEY = 'api-configs'
 const ACTIVE_CONFIG_KEY = 'active-api-config'
 
-const SPACE_PERSONAS = BUILT_IN_PERSONAS.filter(p => p.id !== 'default')
+const SPACE_PERSONAS_IDS = ['xieyan', 'shen-zhaoyang']
 const SPACE_STORAGE_KEY = 'space-posts'
 
 function formatPostTime(ts: number): string {
@@ -145,8 +145,7 @@ export default function ChatPage() {
   const [systemPromptDraft, setSystemPromptDraft] = useState('')
   const [showPreview, setShowPreview] = useState(false)
   const [personaOverrides, setPersonaOverrides] = useState<Record<string, string>>({})
-  const [dbPersonaPrompts, setDbPersonaPrompts] = useState<Record<string, string>>({})
-  const [customPersonas, setCustomPersonas] = useState<Persona[]>([])
+  const [dbPersonas, setDbPersonas] = useState<Persona[]>([])
   const [editingPersonaId, setEditingPersonaId] = useState<string>('default')
   const [newPersonaName, setNewPersonaName] = useState('')
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([])
@@ -213,8 +212,6 @@ export default function ChatPage() {
         if (savedTheme && themes[savedTheme]) setThemeKey(savedTheme)
         const savedOverrides = localStorage.getItem('persona-prompts')
         if (savedOverrides) setPersonaOverrides(JSON.parse(savedOverrides))
-        const savedCustom = localStorage.getItem('custom-personas')
-        if (savedCustom) setCustomPersonas(JSON.parse(savedCustom))
         setDevMode(localStorage.getItem('dev-mode') === 'true')
       setThinkingEnabled(localStorage.getItem('thinking-enabled') === 'true')
       const savedThinkingMode = localStorage.getItem('thinking-mode')
@@ -254,10 +251,8 @@ export default function ChatPage() {
     if (!mounted) return
     fetch('/api/personas')
       .then(r => r.ok ? r.json() : [])
-      .then((rows: { id: string; system_prompt: string }[]) => {
-        const map: Record<string, string> = {}
-        rows.forEach(row => { if (row.system_prompt) map[row.id] = row.system_prompt })
-        setDbPersonaPrompts(map)
+      .then((rows: Persona[]) => {
+        setDbPersonas(rows.map(adaptPersona))
       })
       .catch(() => {})
   }, [mounted])
@@ -459,7 +454,7 @@ export default function ChatPage() {
     setGeneratingFor(prev => new Set(prev).add(postId))
     const convs = await loadConversationsFromDB()
     for (const personaId of personaIds) {
-      const persona = BUILT_IN_PERSONAS.find(p => p.id === personaId)
+      const persona = allPersonas.find(p => p.id === personaId)
       if (!persona) continue
       const recentConv = convs.filter(c => c.personaId === personaId).sort((a, b) => b.updatedAt - a.updatedAt)[0]
       const recentMsgs = recentConv?.messages?.slice(-6) ?? []
@@ -508,7 +503,7 @@ export default function ChatPage() {
     addReplyToComment(postId, commentIdx, { author: 'user', content: text, createdAt: Date.now() })
     const key = `${postId}-${commentIdx}`
     setGeneratingReplyFor(prev => new Set(prev).add(key))
-    const persona = BUILT_IN_PERSONAS.find(p => p.id === comment.personaId)
+    const persona = allPersonas.find(p => p.id === comment.personaId)
     if (persona) {
       try {
         const res = await fetch('/api/chat', {
@@ -530,7 +525,7 @@ export default function ChatPage() {
 
   const publishPost = () => {
     if (!draftContent.trim()) return
-    const visibleTo = spaceVisiblePersonaId ? [spaceVisiblePersonaId] : SPACE_PERSONAS.map(p => p.id)
+    const visibleTo = spaceVisiblePersonaId ? [spaceVisiblePersonaId] : spacePersonas.map(p => p.id)
     const newPost: Post = { id: generateId(), content: draftContent.trim(), createdAt: Date.now(), visibleTo, comments: [] }
     const next = [newPost, ...posts]
     setPosts(next)
@@ -543,10 +538,10 @@ export default function ChatPage() {
 
   const cycleSpaceVisibility = () => {
     if (spaceVisiblePersonaId === null) {
-      setSpaceVisiblePersonaId(SPACE_PERSONAS[0]?.id ?? null)
+      setSpaceVisiblePersonaId(spacePersonas[0]?.id ?? null)
     } else {
-      const idx = SPACE_PERSONAS.findIndex(p => p.id === spaceVisiblePersonaId)
-      const next = SPACE_PERSONAS[idx + 1]
+      const idx = spacePersonas.findIndex(p => p.id === spaceVisiblePersonaId)
+      const next = spacePersonas[idx + 1]
       setSpaceVisiblePersonaId(next ? next.id : null)
     }
   }
@@ -644,12 +639,6 @@ export default function ChatPage() {
     ))
   }
 
-  const VOICE_MAP: Record<string, string> = {
-    'xieyan': 'Chinese (Mandarin)_Gentleman',
-    'shen-zhaoyang': 'Chinese (Mandarin)_Stubborn_Friend',
-    'default': 'male-qn-qingse',
-  }
-
   const ttsCache = useRef<Record<number, string>>({})
   const ttsLoadingRef = useRef<boolean>(false)
 
@@ -674,7 +663,7 @@ export default function ChatPage() {
     ttsLoadingRef.current = true
     setPlayingMsgIdx(idx)
     const personaId = currentConversation?.personaId ?? 'default'
-    const voice = VOICE_MAP[personaId] ?? 'male-qn-qingse'
+    const voice = getPersonaById(personaId)?.voice_id ?? 'male-qn-qingse'
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -746,18 +735,18 @@ export default function ChatPage() {
     }
   }
 
-  const allPersonas = [...BUILT_IN_PERSONAS, ...customPersonas]
+  const allPersonas = dbPersonas.length > 0 ? dbPersonas : FALLBACK_PERSONAS.map(adaptPersona)
+  const spacePersonas = allPersonas.filter(p => SPACE_PERSONAS_IDS.includes(p.id))
+  const getPersonaById = (id: string) => allPersonas.find(p => p.id === id)
 
   const getEffectiveSystemPrompt = (personaId: string) => {
     if (personaOverrides[personaId]) return personaOverrides[personaId]
-    if (dbPersonaPrompts[personaId]) return dbPersonaPrompts[personaId]
-    if (personaId === 'default') return DEFAULT_PROMPT
-    return allPersonas.find(p => p.id === personaId)?.systemPrompt ?? ''
+    return allPersonas.find(p => p.id === personaId)?.system_prompt ?? ''
   }
 
   const openSettings = (personaId = 'default') => {
     setEditingPersonaId(personaId)
-    setSystemPromptDraft(personaId === '__new__' ? DEFAULT_PROMPT : getEffectiveSystemPrompt(personaId))
+    setSystemPromptDraft(personaId === '__new__' ? '' : getEffectiveSystemPrompt(personaId))
     setNewPersonaName('')
     setShowSettings(true)
     setShowMenu(false)
@@ -768,9 +757,15 @@ export default function ChatPage() {
       if (!newPersonaName.trim()) return
       const id = `custom-${Date.now()}`
       const p: Persona = { id, name: newPersonaName.trim(), color: '#9a9a9a', description: '', system_prompt: systemPromptDraft, systemPrompt: systemPromptDraft }
-      const next = [...customPersonas, p]
-      setCustomPersonas(next)
-      localStorage.setItem('custom-personas', JSON.stringify(next))
+      fetch('/api/personas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...p, system_prompt: systemPromptDraft, is_custom: true }),
+      }).then(r => r.ok ? r.json() : null)
+        .then(() => {
+          fetch('/api/personas').then(r => r.ok ? r.json() : [])
+            .then((rows: Persona[]) => setDbPersonas(rows.map(adaptPersona)))
+        })
     } else {
       const next = { ...personaOverrides, [editingPersonaId]: systemPromptDraft }
       setPersonaOverrides(next)
@@ -1445,7 +1440,7 @@ export default function ChatPage() {
                               <button
                                 onClick={async () => {
                                   const personaId = currentConversation?.personaId ?? 'default'
-                                  const voice = VOICE_MAP[personaId] ?? 'male-qn-qingse'
+                                  const voice = getPersonaById(personaId)?.voice_id ?? 'male-qn-qingse'
                                   const sample = '今天天气真不错，适合出门走走。'
                                   try {
                                     const res = await fetch('/api/tts', {
@@ -1626,13 +1621,13 @@ export default function ChatPage() {
                     >
                       {spaceVisiblePersonaId === null ? (
                         <>
-                          {SPACE_PERSONAS.map(p => <div key={p.id} className="w-2 h-2 rounded-full" style={{ background: p.color }} />)}
+                          {spacePersonas.map(p => <div key={p.id} className="w-2 h-2 rounded-full" style={{ background: p.color }} />)}
                           <span>全部可见</span>
                         </>
                       ) : (
                         <>
-                          <div className="w-2 h-2 rounded-full" style={{ background: SPACE_PERSONAS.find(p => p.id === spaceVisiblePersonaId)?.color }} />
-                          <span>仅 {SPACE_PERSONAS.find(p => p.id === spaceVisiblePersonaId)?.name} 可见</span>
+                          <div className="w-2 h-2 rounded-full" style={{ background: spacePersonas.find(p => p.id === spaceVisiblePersonaId)?.color }} />
+                          <span>仅 {spacePersonas.find(p => p.id === spaceVisiblePersonaId)?.name} 可见</span>
                         </>
                       )}
                       <span style={{ opacity: 0.5 }}>⇌</span>
@@ -1671,7 +1666,7 @@ export default function ChatPage() {
                     <span className="text-sm" style={{ color: t.settingsSubText }}>还没有动态，写点什么吧</span>
                   </div>
                 ) : posts.map(post => {
-                  const visiblePersonas = SPACE_PERSONAS.filter(p => post.visibleTo.includes(p.id))
+                  const visiblePersonas = spacePersonas.filter(p => post.visibleTo.includes(p.id))
                   const isGenerating = generatingFor.has(post.id)
                   return (
                     <div key={post.id} className="rounded-2xl p-4" style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', border: `1px solid ${t.headerBorder}` }}>
@@ -1691,7 +1686,7 @@ export default function ChatPage() {
                           <span className="text-xs" style={{ color: t.settingsSubText }}>暂无评论</span>
                         )}
                         {post.comments.map((c, i) => {
-                          const persona = BUILT_IN_PERSONAS.find(p => p.id === c.personaId)
+                          const persona = allPersonas.find(p => p.id === c.personaId)
                           const userReplyCount = (c.replies ?? []).filter(r => r.author === 'user').length
                           const canReply = userReplyCount < 2
                           const isReplying = replyingTo?.postId === post.id && replyingTo?.commentIdx === i
@@ -1713,7 +1708,7 @@ export default function ChatPage() {
                                   <div className="mt-2 pl-3" style={{ borderLeft: `2px solid ${t.settingsInputBorder}` }}>
                                     {(c.replies ?? []).map((r, ri) => {
                                       const isUser = r.author === 'user'
-                                      const replyPersona = isUser ? null : BUILT_IN_PERSONAS.find(p => p.id === r.author)
+                                      const replyPersona = isUser ? null : allPersonas.find(p => p.id === r.author)
                                       return (
                                         <div key={ri} className="mb-1.5 last:mb-0 text-xs leading-relaxed" style={{ color: t.settingsText }}>
                                           <span className="font-semibold mr-1" style={{ color: isUser ? t.userBubble : (replyPersona?.color ?? t.settingsText) }}>
@@ -1783,7 +1778,7 @@ export default function ChatPage() {
                               <span className="animate-bounce" style={{ animationDelay: '300ms' }}>·</span>
                             </div>
                             <span className="text-xs" style={{ color: t.settingsSubText }}>
-                              {SPACE_PERSONAS.filter(p => post.visibleTo.includes(p.id)).filter(p => !post.comments.find(c => c.personaId === p.id)).map(p => p.name).join('、')} 正在评论
+                              {spacePersonas.filter(p => post.visibleTo.includes(p.id)).filter(p => !post.comments.find(c => c.personaId === p.id)).map(p => p.name).join('、')} 正在评论
                             </span>
                           </div>
                         )}
@@ -2436,7 +2431,7 @@ return (
                 onChange={e => {
                   const id = e.target.value
                   setEditingPersonaId(id)
-                  setSystemPromptDraft(id === '__new__' ? DEFAULT_PROMPT : getEffectiveSystemPrompt(id))
+                  setSystemPromptDraft(id === '__new__' ? '' : getEffectiveSystemPrompt(id))
                   setNewPersonaName('')
                 }}
               >
