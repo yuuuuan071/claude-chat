@@ -23,6 +23,7 @@ import {
 } from '../memory'
 import { type Persona, FALLBACK_PERSONAS, adaptPersona } from '../personas'
 import { generateId } from '../utils'
+import PersonaSettings from '../components/PersonaSettings'
 
 async function streamToString(res: Response): Promise<string> {
   if (!res.ok) return ''
@@ -121,7 +122,6 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [playingMsgIdx, setPlayingMsgIdx] = useState<number | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
   const [showMemory, setShowMemory] = useState(false)
   const [showApiSettings, setShowApiSettings] = useState(false)
   const [devMode, setDevMode] = useState(false)
@@ -147,6 +147,8 @@ export default function ChatPage() {
   const [personaOverrides, setPersonaOverrides] = useState<Record<string, string>>({})
   const [dbPersonas, setDbPersonas] = useState<Persona[]>([])
   const [editingPersonaId, setEditingPersonaId] = useState<string>('default')
+  const [editingPersona, setEditingPersona] = useState<Persona | null>(null)
+  const [editingIsNew, setEditingIsNew] = useState(false)
   const [newPersonaName, setNewPersonaName] = useState('')
   const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([])
   const [newMemoryInput, setNewMemoryInput] = useState('')
@@ -745,37 +747,30 @@ export default function ChatPage() {
   }
 
   const openSettings = (personaId = 'default') => {
-    setEditingPersonaId(personaId)
-    setSystemPromptDraft(personaId === '__new__' ? '' : getEffectiveSystemPrompt(personaId))
-    setNewPersonaName('')
-    setShowSettings(true)
+    if (personaId === '__new__') {
+      setEditingPersona({ id: `custom-${Date.now()}`, name: '', color: '#9a9a9a', description: '', system_prompt: '' })
+      setEditingIsNew(true)
+    } else {
+      const p = allPersonas.find(pp => pp.id === personaId)
+      if (p) {
+        setEditingPersona({ ...p, system_prompt: getEffectiveSystemPrompt(personaId) })
+        setEditingIsNew(false)
+      }
+    }
     setShowMenu(false)
   }
 
-  const saveSettings = () => {
-    if (editingPersonaId === '__new__') {
-      if (!newPersonaName.trim()) return
-      const id = `custom-${Date.now()}`
-      const p: Persona = { id, name: newPersonaName.trim(), color: '#9a9a9a', description: '', system_prompt: systemPromptDraft, systemPrompt: systemPromptDraft }
-      fetch('/api/personas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...p, system_prompt: systemPromptDraft, is_custom: true }),
-      }).then(r => r.ok ? r.json() : null)
-        .then(() => {
-          fetch('/api/personas').then(r => r.ok ? r.json() : [])
-            .then((rows: Persona[]) => setDbPersonas(rows.map(adaptPersona)))
-        })
-    } else {
-      const next = { ...personaOverrides, [editingPersonaId]: systemPromptDraft }
-      setPersonaOverrides(next)
-      localStorage.setItem('persona-prompts', JSON.stringify(next))
-      if (editingPersonaId === 'default') {
-        setSystemPrompt(systemPromptDraft)
-        localStorage.setItem('system-prompt', systemPromptDraft)
-      }
-    }
-    setShowSettings(false)
+  const handlePersonaSave = (updated: Persona) => {
+    fetch('/api/personas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    }).then(r => r.ok ? r.json() : null)
+      .then(() => {
+        fetch('/api/personas').then(r => r.ok ? r.json() : [])
+          .then((rows: Persona[]) => setDbPersonas(rows.map(adaptPersona)))
+      })
+    setEditingPersona(null)
   }
 
   const SUMMARY_THRESHOLD = 10
@@ -2409,91 +2404,15 @@ return (
         </div>
       )}
 
-      {/* 人设编辑器弹窗 */}
-      {showSettings && (
-        <div className="fixed inset-0 flex items-center justify-center z-10" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
-          <div
-            className="rounded-2xl w-full mx-4 flex flex-col"
-            style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', maxWidth: '680px', maxHeight: '85vh' }}
-          >
-            {/* 标题栏 */}
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
-              <h2 className="text-sm font-medium" style={{ color: t.settingsText }}>人设编辑器</h2>
-              <button onClick={() => setShowSettings(false)} className="text-sm transition-opacity hover:opacity-60" style={{ color: t.settingsSubText }}>✕</button>
-            </div>
-
-            {/* 选择角色下拉 */}
-            <div className="px-6 py-3 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
-              <select
-                className="w-full rounded-xl px-3 py-2 text-sm outline-none cursor-pointer"
-                style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}
-                value={editingPersonaId}
-                onChange={e => {
-                  const id = e.target.value
-                  setEditingPersonaId(id)
-                  setSystemPromptDraft(id === '__new__' ? '' : getEffectiveSystemPrompt(id))
-                  setNewPersonaName('')
-                }}
-              >
-                {allPersonas.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-                <option disabled>──────</option>
-                <option value="__new__">+ 创建新角色</option>
-              </select>
-              {editingPersonaId === '__new__' && (
-                <input
-                  className="w-full mt-2 rounded-xl px-3 py-2 text-sm outline-none"
-                  style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}
-                  placeholder="角色名称"
-                  value={newPersonaName}
-                  onChange={e => setNewPersonaName(e.target.value)}
-                />
-              )}
-            </div>
-
-            {/* 编辑区 */}
-            <div className="flex-1 min-h-0 p-4 flex flex-col">
-              <textarea
-                className="flex-1 w-full rounded-xl px-4 py-3 text-sm outline-none resize-none leading-relaxed"
-                style={{
-                  background: t.settingsInputBg,
-                  color: t.settingsText,
-                  border: `1px solid ${t.settingsInputBorder}`,
-                  minHeight: '320px',
-                }}
-                placeholder="在这里编写 System Prompt…"
-                value={systemPromptDraft}
-                onChange={e => setSystemPromptDraft(e.target.value)}
-              />
-              {systemPromptDraft.length > 0 && (
-                <p className="text-xs mt-2 text-right" style={{ color: t.settingsSubText }}>{systemPromptDraft.length} 字符</p>
-              )}
-            </div>
-
-            {/* 底部操作栏 */}
-            <div className="flex items-center justify-between px-6 py-4 shrink-0" style={{ borderTop: `1px solid ${t.headerBorder}` }}>
-              <button
-                className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-70"
-                style={{ color: t.settingsSubText, border: `1px solid ${t.headerBorder}` }}
-                onClick={() => setShowPreview(true)}
-              >
-                预览
-              </button>
-              <div className="flex gap-2">
-                <button onClick={() => setShowSettings(false)} className="text-xs px-4 py-2 transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>取消</button>
-                <button
-                  onClick={saveSettings}
-                  disabled={editingPersonaId === '__new__' && !newPersonaName.trim()}
-                  className="text-xs rounded-lg px-4 py-2 disabled:opacity-40"
-                  style={{ background: t.saveButton, color: t.saveButtonText }}
-                >
-                  保存
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {editingPersona && (
+        <PersonaSettings
+          persona={editingPersona}
+          allPersonas={allPersonas}
+          isNew={editingIsNew}
+          theme={t}
+          onSave={handlePersonaSave}
+          onClose={() => setEditingPersona(null)}
+        />
       )}
 
       {/* 开发者密码弹窗 */}
