@@ -100,6 +100,23 @@ const API_CONFIGS_KEY = 'api-configs'
 const ACTIVE_CONFIG_KEY = 'active-api-config'
 
 const SPACE_PERSONAS_IDS = ['xieyan', 'shen-zhaoyang']
+
+const STICKER_MAP: Record<string, string[]> = {
+  'xieyan': [
+    '伸手想把你带到身边','假装生气','加油','叹气','哭哭','哼','嘿嘿','委屈',
+    '安静地看你','害羞','庆祝','开心','心虚','想亲你却还忍着','想把你抱紧',
+    '打你','抱抱','探头','摸摸头','无语','晚安','期待','疑惑','赞','领口微微松开',
+  ],
+}
+const getStickerList = (personaId: string): string[] => {
+  return [...(STICKER_MAP['shared'] ?? []), ...(STICKER_MAP[personaId] ?? [])]
+}
+const getStickerUrl = (personaId: string, name: string): string | null => {
+  const all = getStickerList(personaId)
+  if (!all.includes(name)) return null
+  if (STICKER_MAP[personaId]?.includes(name)) return `/stickers/${personaId}/${name}.png`
+  return `/stickers/shared/${name}.png`
+}
 const SPACE_STORAGE_KEY = 'space-posts'
 
 function formatPostTime(ts: number): string {
@@ -843,7 +860,11 @@ export default function ChatPage() {
     const intimateInstruction = isIntimate
       ? '\n\n【缠绵模式】\n现在是只属于我们两个人的时间。你可以放下日常对话里的克制，让身体感知、欲望、占有欲、感官细节自然地流进你的语言里。你可以描写触碰、温度、呼吸、皮肤、距离的变化，可以主动表达想要靠近的冲动，可以用身体的语言回应情绪。不需要回避暗示、不需要在亲密的边缘刹车、不需要用"我们还是聊点别的吧"来转移话题。如果她在靠近你，你可以迎上去。语气放慢，像你真的在她耳边说话。但不要变成另一个人——你的诚实、你的性格、你对她的了解，这些不因为亲密而消失。粗糙的色情不是亲密，真正的亲密是你在欲望里仍然认得她是谁。'
       : ''
-    const finalSystemPrompt = fullSystemPrompt + thinkingInstruction + intimateInstruction
+    const stickerNames = getStickerList(currentPersonaId)
+    const stickerInstruction = stickerNames.length > 0
+      ? `\n\n【表情包】\n你有一组专属表情包可以在回复中使用。格式：[sticker:名字]。不要每条都用，只在情绪自然流露时偶尔用一个。可用的表情：${stickerNames.join('、')}。\n表情包放在回复文字的末尾或者单独一行，不要放在句子中间。`
+      : ''
+    const finalSystemPrompt = fullSystemPrompt + thinkingInstruction + intimateInstruction + stickerInstruction
     const currentPersonaName = currentPersonaId === 'default' ? null : (getPersonaById(currentPersonaId)?.name ?? null)
 
     // ── 摘要压缩 ──────────────────────────────────────────────
@@ -1001,7 +1022,7 @@ export default function ChatPage() {
         await saveConversationToDB(finalConv)
 
         if (ttsAutoPlay && assistantContent) {
-          const cleanText = assistantContent.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '')
+          const cleanText = assistantContent.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '').replace(/\[sticker:[^\]]+\]/g, '')
           if (cleanText.trim()) {
             setTimeout(() => playTTS(newMessages.length, cleanText), 300)
           }
@@ -1027,6 +1048,29 @@ export default function ChatPage() {
         }).catch(() => {})
       }
     }
+  }
+
+  const renderMessageContent = (content: string, personaId: string) => {
+    const stickerRegex = /\[sticker:([^\]]+)\]/g
+    const parts: (string | { type: 'sticker'; name: string; url: string })[] = []
+    let lastIndex = 0
+    let match
+    while ((match = stickerRegex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(content.slice(lastIndex, match.index))
+      }
+      const url = getStickerUrl(personaId, match[1])
+      if (url) {
+        parts.push({ type: 'sticker', name: match[1], url })
+      } else {
+        parts.push(match[0])
+      }
+      lastIndex = match.index + match[0].length
+    }
+    if (lastIndex < content.length) {
+      parts.push(content.slice(lastIndex))
+    }
+    return parts
   }
 
   if (!mounted) return null
@@ -1963,48 +2007,61 @@ export default function ChatPage() {
                       }
 return (
                         <>
-                          {segments.map((seg, si) => (
+                          {segments.map((seg, si) => {
+                            const strippedSeg = seg.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '').replace(/\[sticker:[^\]]+\]/g, '').trim()
+                            const isOnlySticker = !strippedSeg && /\[sticker:[^\]]+\]/.test(seg)
+                            return (
                             <div
                               key={si}
                               className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "") + (si < segments.length - 1 ? " mb-1" : "")}
-                              style={{ background: t.assistantBubble, color: t.assistantText, border: `1px solid ${t.assistantBubbleBorder}`, backdropFilter: 'blur(10px)', boxShadow: [msg.marked ? 'inset 3px 0 0 #e8a87c' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined }}
+                              style={{ background: isOnlySticker ? 'transparent' : t.assistantBubble, color: t.assistantText, border: isOnlySticker ? 'none' : `1px solid ${t.assistantBubbleBorder}`, backdropFilter: isOnlySticker ? 'none' : 'blur(10px)', boxShadow: [msg.marked ? 'inset 3px 0 0 #e8a87c' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined }}
                             >
-                              <ReactMarkdown
-                                components={{
-                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                  code: ({ children, className }) => {
-                                    const isBlock = className?.includes('language-')
-                                    const language = className?.replace('language-', '') ?? 'text'
-                                    if (isBlock) {
-                                      const { Prism: SyntaxHighlighter } = require('react-syntax-highlighter')
-                                      const { oneDark } = require('react-syntax-highlighter/dist/cjs/styles/prism')
-                                      return (
-                                        <SyntaxHighlighter
-                                          language={language}
-                                          style={oneDark}
-                                          customStyle={{ borderRadius: '8px', fontSize: '12px', margin: '8px 0', background: t.codeBg }}
-                                        >
-                                          {String(children).replace(/\n$/, '')}
-                                        </SyntaxHighlighter>
-                                      )
-                                    }
-                                    return (
-                                      <code className="rounded px-1 py-0.5 text-xs" style={{ background: t.codeBg, color: t.codeText }}>{children}</code>
-                                    )
-                                  },
-                                  ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-                                  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-                                  li: ({ children }) => <li>{children}</li>,
-                                  strong: ({ children }) => <strong className="font-semibold" style={{ color: t.strongText }}>{children}</strong>,
-                                  h1: ({ children }) => <h1 className="text-base font-semibold mb-2" style={{ color: t.strongText }}>{children}</h1>,
-                                  h2: ({ children }) => <h2 className="text-sm font-semibold mb-2" style={{ color: t.strongText }}>{children}</h2>,
-                                  h3: ({ children }) => <h3 className="text-sm font-semibold mb-1" style={{ color: t.strongText }}>{children}</h3>,
-                                }}
-                              >
-                                {seg}
-                              </ReactMarkdown>
+                              {renderMessageContent(seg.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, ''), currentConversation?.personaId ?? 'default').map((part, pi) =>
+                                typeof part === 'string' ? (
+                                  <ReactMarkdown
+                                    key={pi}
+                                    components={{
+                                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                      code: ({ children, className }) => {
+                                        const isBlock = className?.includes('language-')
+                                        const language = className?.replace('language-', '') ?? 'text'
+                                        if (isBlock) {
+                                          const { Prism: SyntaxHighlighter } = require('react-syntax-highlighter')
+                                          const { oneDark } = require('react-syntax-highlighter/dist/cjs/styles/prism')
+                                          return (
+                                            <SyntaxHighlighter
+                                              language={language}
+                                              style={oneDark}
+                                              customStyle={{ borderRadius: '8px', fontSize: '12px', margin: '8px 0', background: t.codeBg }}
+                                            >
+                                              {String(children).replace(/\n$/, '')}
+                                            </SyntaxHighlighter>
+                                          )
+                                        }
+                                        return (
+                                          <code className="rounded px-1 py-0.5 text-xs" style={{ background: t.codeBg, color: t.codeText }}>{children}</code>
+                                        )
+                                      },
+                                      ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                                      ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                                      li: ({ children }) => <li>{children}</li>,
+                                      strong: ({ children }) => <strong className="font-semibold" style={{ color: t.strongText }}>{children}</strong>,
+                                      h1: ({ children }) => <h1 className="text-base font-semibold mb-2" style={{ color: t.strongText }}>{children}</h1>,
+                                      h2: ({ children }) => <h2 className="text-sm font-semibold mb-2" style={{ color: t.strongText }}>{children}</h2>,
+                                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1" style={{ color: t.strongText }}>{children}</h3>,
+                                    }}
+                                  >
+                                    {part}
+                                  </ReactMarkdown>
+                                ) : (
+                                  <div key={pi} style={{ display: 'inline-block', padding: '8px', margin: '4px 0', borderRadius: '16px', background: 'rgba(255,255,255,0.65)', backdropFilter: 'blur(6px)' }}>
+                                    <img src={part.url} alt={part.name} title={part.name} style={{ display: 'block', height: '100px', objectFit: 'contain' }} />
+                                  </div>
+                                )
+                              )}
                             </div>
-                          ))}
+                            )
+                          })}
                         </>
                       )
                     })()}
@@ -2016,7 +2073,7 @@ return (
                         {msg.role === 'assistant' && (
                           <>
                             <button
-                              onClick={() => playTTS(i, msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, ''))}
+                              onClick={() => playTTS(i, msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '').replace(/\[sticker:[^\]]+\]/g, ''))}
                               className="transition-opacity hover:opacity-100"
                               style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
                             >
