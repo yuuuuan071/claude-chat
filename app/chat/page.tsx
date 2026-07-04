@@ -1440,7 +1440,34 @@ export default function ChatPage() {
                         <div className="px-4 py-2.5">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs" style={{ color: t.settingsSubText }}>语速</span>
-                            <span className="text-xs" style={{ color: t.settingsText }}>{ttsSpeed.toFixed(1)}x</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs" style={{ color: t.settingsText }}>{ttsSpeed.toFixed(1)}x</span>
+                              <button
+                                onClick={async () => {
+                                  const personaId = currentConversation?.personaId ?? 'default'
+                                  const voice = VOICE_MAP[personaId] ?? 'male-qn-qingse'
+                                  const sample = '今天天气真不错，适合出门走走。'
+                                  try {
+                                    const res = await fetch('/api/tts', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ text: sample, voice, speed: ttsSpeed * (intimateMode ? 0.8 : 1.0) }),
+                                    })
+                                    if (!res.ok) return
+                                    const blob = await res.blob()
+                                    const url = URL.createObjectURL(blob)
+                                    const audio = new Audio(url)
+                                    audio.volume = ttsVolume
+                                    audio.onended = () => URL.revokeObjectURL(url)
+                                    audio.play()
+                                  } catch {}
+                                }}
+                                className="text-xs px-1.5 py-0.5 rounded-md transition-opacity hover:opacity-70"
+                                style={{ color: t.settingsSubText, border: `1px solid ${t.headerBorder}` }}
+                              >
+                                试听
+                              </button>
+                            </div>
                           </div>
                           <input type="range" min="0.5" max="1.5" step="0.1" value={ttsSpeed}
                             onChange={e => setTtsSpeed(parseFloat(e.target.value))}
