@@ -173,6 +173,9 @@ export default function ChatPage() {
   const [ambientSound, setAmbientSound] = useState<string | null>(null)
   const [ambientVolume, setAmbientVolume] = useState(0.3)
   const [intimateMode, setIntimateMode] = useState(false)
+  const [ttsAutoPlay, setTtsAutoPlay] = useState(false)
+  const [ttsSpeed, setTtsSpeed] = useState(1.0)
+  const [ttsVolume, setTtsVolume] = useState(0.8)
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null)
   const prevAmbientRef = useRef<{ sound: string | null; volume: number } | null>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
@@ -224,6 +227,12 @@ export default function ChatPage() {
         if (savedAmbient) setAmbientSound(savedAmbient)
         const savedAmbientVol = localStorage.getItem('ambient-volume')
         if (savedAmbientVol) setAmbientVolume(parseFloat(savedAmbientVol))
+        const savedTtsAuto = localStorage.getItem('tts-autoplay')
+        if (savedTtsAuto === 'true') setTtsAutoPlay(true)
+        const savedTtsSpeed = localStorage.getItem('tts-speed')
+        if (savedTtsSpeed) setTtsSpeed(parseFloat(savedTtsSpeed))
+        const savedTtsVol = localStorage.getItem('tts-volume')
+        if (savedTtsVol) setTtsVolume(parseFloat(savedTtsVol))
         const savedIntimate = localStorage.getItem('intimate-mode')
         if (savedIntimate === 'true') setIntimateMode(true)
       } catch {}
@@ -330,6 +339,16 @@ export default function ChatPage() {
   useEffect(() => {
     if (mounted) localStorage.setItem('ambient-volume', String(ambientVolume))
   }, [ambientVolume, mounted])
+
+  useEffect(() => {
+    if (mounted) localStorage.setItem('tts-autoplay', String(ttsAutoPlay))
+  }, [ttsAutoPlay, mounted])
+  useEffect(() => {
+    if (mounted) localStorage.setItem('tts-speed', String(ttsSpeed))
+  }, [ttsSpeed, mounted])
+  useEffect(() => {
+    if (mounted) localStorage.setItem('tts-volume', String(ttsVolume))
+  }, [ttsVolume, mounted])
 
   useEffect(() => {
     if (mounted) localStorage.setItem('intimate-mode', intimateMode ? 'true' : 'false')
@@ -644,6 +663,7 @@ export default function ChatPage() {
     // 有缓存直接播放
     if (ttsCache.current[idx]) {
       const audio = new Audio(ttsCache.current[idx])
+      audio.volume = ttsVolume
       ttsAudioRef.current = audio
       audio.onended = () => setPlayingMsgIdx(null)
       audio.onerror = () => setPlayingMsgIdx(null)
@@ -659,7 +679,7 @@ export default function ChatPage() {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice, speed: intimateMode ? 0.8 : 1.0 }),
+        body: JSON.stringify({ text, voice, speed: ttsSpeed * (intimateMode ? 0.8 : 1.0) }),
       })
       if (!res.ok) { setPlayingMsgIdx(null); return }
       const blob = await res.blob()
@@ -673,6 +693,7 @@ export default function ChatPage() {
       }
       ttsCache.current[idx] = url
       const audio = new Audio(url)
+      audio.volume = ttsVolume
       ttsAudioRef.current = audio
       audio.onended = () => { setPlayingMsgIdx(null) }
       audio.onerror = () => { setPlayingMsgIdx(null) }
@@ -688,6 +709,7 @@ export default function ChatPage() {
     if (loading) return
     const lastAssistantIdx = messages.map(m => m.role).lastIndexOf('assistant')
     if (lastAssistantIdx === -1) return
+    delete ttsCache.current[lastAssistantIdx]
     const trimmed = messages.slice(0, lastAssistantIdx)
     updateCurrentMessages(trimmed)
     const lastUserMsg = [...trimmed].reverse().find(m => m.role === 'user')
@@ -987,6 +1009,13 @@ export default function ChatPage() {
           summarizedCount,
         }
         await saveConversationToDB(finalConv)
+
+        if (ttsAutoPlay && assistantContent) {
+          const cleanText = assistantContent.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '')
+          if (cleanText.trim()) {
+            setTimeout(() => playTTS(newMessages.length, cleanText), 300)
+          }
+        }
       }
     } catch (e) {
       console.error(e)
@@ -1335,6 +1364,92 @@ export default function ChatPage() {
                     )}
                   </div>
 
+                  {/* 🔊 音效 */}
+                  <div
+                    className="relative"
+                    style={{ borderBottom: `1px solid ${t.headerBorder}` }}
+                    onMouseEnter={() => setHoveredGroup('audio')}
+                    onMouseLeave={() => setHoveredGroup(null)}
+                  >
+                    <button
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70"
+                      style={{ color: t.settingsSubText }}
+                    >
+                      <span>🔊 音效</span>
+                      <span style={{ fontSize: '10px' }}>▸</span>
+                    </button>
+                    {hoveredGroup === 'audio' && (
+                      <div
+                        className="absolute rounded-xl overflow-hidden"
+                        style={{
+                          left: '100%',
+                          bottom: 0,
+                          minWidth: '220px',
+                          background: t.settingsBg,
+                          backdropFilter: 'blur(16px)',
+                          border: `1px solid ${t.headerBorder}`,
+                          boxShadow: t.inputShadow,
+                        }}
+                      >
+                        <button
+                          onClick={() => { setTtsAutoPlay(prev => !prev); setShowMenu(false) }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                        >
+                          自动朗读：{ttsAutoPlay ? '开启 ✓' : '关闭'}
+                        </button>
+                        <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+                          <span className="text-xs shrink-0" style={{ color: t.settingsSubText }}>环境音</span>
+                          {[
+                            { key: 'rain', label: '雨' },
+                            { key: 'forest', label: '林' },
+                            { key: 'water', label: '水' },
+                          ].map(({ key, label }) => (
+                            <button
+                              key={key}
+                              onClick={() => setAmbientSound(prev => prev === key ? null : key)}
+                              className="rounded-md px-2 py-0.5 text-xs transition-all"
+                              style={{
+                                color: ambientSound === key ? t.headerText : t.settingsSubText,
+                                background: ambientSound === key ? t.userBubble : 'transparent',
+                                opacity: ambientSound === key ? 1 : 0.6,
+                              }}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs" style={{ color: t.settingsSubText }}>语音音量</span>
+                            <span className="text-xs" style={{ color: t.settingsText }}>{Math.round(ttsVolume * 100)}%</span>
+                          </div>
+                          <input type="range" min="0" max="1" step="0.05" value={ttsVolume}
+                            onChange={e => setTtsVolume(parseFloat(e.target.value))}
+                            style={{ width: '100%', accentColor: t.sendButton }} />
+                        </div>
+                        <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs" style={{ color: t.settingsSubText }}>环境音量</span>
+                            <span className="text-xs" style={{ color: t.settingsText }}>{Math.round(ambientVolume * 100)}%</span>
+                          </div>
+                          <input type="range" min="0" max="1" step="0.05" value={ambientVolume}
+                            onChange={e => setAmbientVolume(parseFloat(e.target.value))}
+                            style={{ width: '100%', accentColor: t.sendButton }} />
+                        </div>
+                        <div className="px-4 py-2.5">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs" style={{ color: t.settingsSubText }}>语速</span>
+                            <span className="text-xs" style={{ color: t.settingsText }}>{ttsSpeed.toFixed(1)}x</span>
+                          </div>
+                          <input type="range" min="0.5" max="1.5" step="0.1" value={ttsSpeed}
+                            onChange={e => setTtsSpeed(parseFloat(e.target.value))}
+                            style={{ width: '100%', accentColor: t.sendButton }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* ⚙️ 高级 */}
                   <div
                     className="relative"
@@ -1441,48 +1556,15 @@ export default function ChatPage() {
                 setIntimateMode(prev => !prev)
                 ttsCache.current = {}
               }}
-              className="transition-all rounded-md px-1.5 py-0.5"
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
               style={{
-                fontSize: '0.65rem',
                 color: intimateMode ? '#e8a87c' : t.buttonText,
-                opacity: intimateMode ? 1 : 0.5,
-                background: intimateMode ? 'rgba(232,168,124,0.15)' : 'transparent',
+                background: intimateMode ? 'rgba(232,168,124,0.12)' : 'transparent',
               }}
+              title="缠绵模式"
             >
-              {intimateMode ? '🌙' : '☽'}
+              <span style={{ fontSize: '15px', lineHeight: 1 }}>{intimateMode ? '🌙' : '☽'}</span>
             </button>
-            <div className="flex items-center gap-1 shrink-0">
-              {[
-                { key: 'rain', label: '雨' },
-                { key: 'forest', label: '林' },
-                { key: 'water', label: '水' },
-              ].map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setAmbientSound(prev => prev === key ? null : key)}
-                  className="transition-all rounded-md px-1.5 py-0.5"
-                  style={{
-                    fontSize: '0.65rem',
-                    color: ambientSound === key ? t.headerText : t.buttonText,
-                    opacity: ambientSound === key ? 1 : 0.5,
-                    background: ambientSound === key ? t.userBubble : 'transparent',
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-              {ambientSound && (
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={ambientVolume}
-                  onChange={e => setAmbientVolume(parseFloat(e.target.value))}
-                  style={{ width: '50px', accentColor: t.sendButton }}
-                />
-              )}
-            </div>
             <button
               onClick={handleGoHome}
               className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
