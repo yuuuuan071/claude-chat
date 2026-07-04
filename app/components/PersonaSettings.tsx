@@ -11,6 +11,7 @@ interface Props {
   theme: Record<string, string>
   onSave: (p: Persona) => void
   onClose: () => void
+  onSwitch: (personaId: string) => void
 }
 
 const VOICE_OPTIONS = [
@@ -29,7 +30,7 @@ const AMBIENT_OPTIONS: { id: string | null; label: string }[] = [
   { id: 'water', label: '水' },
 ]
 
-export default function PersonaSettings({ persona, isNew, theme: t, onSave, onClose }: Props) {
+export default function PersonaSettings({ persona, allPersonas, isNew, theme: t, onSave, onClose, onSwitch }: Props) {
   const [tab, setTab] = useState<Tab>('basic')
   const [name, setName] = useState(persona.name ?? '')
   const [color, setColor] = useState(persona.color ?? '#8B9BBA')
@@ -105,6 +106,22 @@ export default function PersonaSettings({ persona, isNew, theme: t, onSave, onCl
           <button onClick={onClose} className="text-sm transition-opacity hover:opacity-60" style={{ color: t.settingsSubText }}>✕</button>
         </div>
 
+        {/* 角色选择 */}
+        <div className="px-6 py-3 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+          <select
+            className="w-full rounded-xl px-3 py-2 text-sm outline-none cursor-pointer"
+            style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}
+            value={isNew ? '__new__' : persona.id}
+            onChange={e => onSwitch(e.target.value)}
+          >
+            {allPersonas.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+            <option disabled>──────</option>
+            <option value="__new__">+ 创建新角色</option>
+          </select>
+        </div>
+
         {/* Tab 栏 */}
         <div className="flex px-6 pt-3 gap-1 shrink-0" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
           {tabs.map(({ key, label }) => (
@@ -147,11 +164,21 @@ export default function PersonaSettings({ persona, isNew, theme: t, onSave, onCl
               <div className="flex gap-4">
                 <div className="flex-1">
                   <label className="text-xs mb-1 block" style={{ color: t.settingsSubText }}>性别</label>
-                  <input className="w-full rounded-xl px-3 py-2 text-sm outline-none" style={inputStyle} value={gender} onChange={e => setGender(e.target.value)} placeholder="可选" />
+                  <select className="w-full rounded-xl px-3 py-2 text-sm outline-none cursor-pointer" style={inputStyle} value={gender} onChange={e => setGender(e.target.value)}>
+                    <option value="">未设置</option>
+                    <option value="男">男</option>
+                    <option value="女">女</option>
+                    <option value="其他">其他</option>
+                  </select>
                 </div>
                 <div className="flex-1">
                   <label className="text-xs mb-1 block" style={{ color: t.settingsSubText }}>星座</label>
-                  <input className="w-full rounded-xl px-3 py-2 text-sm outline-none" style={inputStyle} value={constellation} onChange={e => setConstellation(e.target.value)} placeholder="可选" />
+                  <select className="w-full rounded-xl px-3 py-2 text-sm outline-none cursor-pointer" style={inputStyle} value={constellation} onChange={e => setConstellation(e.target.value)}>
+                    <option value="">未设置</option>
+                    {['白羊座','金牛座','双子座','巨蟹座','狮子座','处女座','天秤座','天蝎座','射手座','摩羯座','水瓶座','双鱼座'].map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div>

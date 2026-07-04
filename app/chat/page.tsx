@@ -2406,12 +2406,25 @@ return (
 
       {editingPersona && (
         <PersonaSettings
+          key={editingPersona.id}
           persona={editingPersona}
           allPersonas={allPersonas}
           isNew={editingIsNew}
           theme={t}
           onSave={handlePersonaSave}
           onClose={() => setEditingPersona(null)}
+          onSwitch={(id) => {
+            if (id === '__new__') {
+              setEditingPersona({ id: `custom-${Date.now()}`, name: '', color: '#9a9a9a', description: '', system_prompt: '' })
+              setEditingIsNew(true)
+            } else {
+              const p = allPersonas.find(pp => pp.id === id)
+              if (p) {
+                setEditingPersona({ ...p, system_prompt: getEffectiveSystemPrompt(id) })
+                setEditingIsNew(false)
+              }
+            }
+          }}
         />
       )}
 
