@@ -1986,8 +1986,11 @@ export default function ChatPage() {
                     {msg.role === 'user' ? (
                       <div
                         className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "")}
-                        style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)', boxShadow: msg.marked ? 'inset 3px 0 0 #e8a87c' : undefined }}
+                        style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)', boxShadow: msg.marked ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : undefined, position: 'relative' }}
                       >
+                        {msg.marked && (
+                          <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.08, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)' }}>🫆</div>
+                        )}
                         {msg.content}
                       </div>
                     ) : (() => {
@@ -2014,8 +2017,11 @@ return (
                             <div
                               key={si}
                               className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "") + (si < segments.length - 1 ? " mb-1" : "")}
-                              style={{ background: isOnlySticker ? 'transparent' : t.assistantBubble, color: t.assistantText, border: isOnlySticker ? 'none' : `1px solid ${t.assistantBubbleBorder}`, backdropFilter: isOnlySticker ? 'none' : 'blur(10px)', boxShadow: [msg.marked ? 'inset 3px 0 0 #e8a87c' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined }}
+                              style={{ background: isOnlySticker ? 'transparent' : t.assistantBubble, color: t.assistantText, border: isOnlySticker ? 'none' : `1px solid ${t.assistantBubbleBorder}`, backdropFilter: isOnlySticker ? 'none' : 'blur(10px)', boxShadow: [msg.marked ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined, position: 'relative' }}
                             >
+                              {msg.marked && (
+                                <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.08, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)' }}>🫆</div>
+                              )}
                               {renderMessageContent(seg.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, ''), currentConversation?.personaId ?? 'default').map((part, pi) =>
                                 typeof part === 'string' ? (
                                   <ReactMarkdown
@@ -2102,7 +2108,7 @@ return (
                         <button
                           onClick={() => toggleMark(i)}
                           className="transition-opacity hover:opacity-100"
-                          style={{ fontSize: '0.72rem', color: msg.marked ? '#e8a87c' : t.timestampText, opacity: msg.marked ? 0.9 : 0.35, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
+                          style={{ fontSize: '0.72rem', color: msg.marked ? '#8b2d2d' : t.timestampText, opacity: msg.marked ? 0.9 : 0.35, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
                         >
                           {msg.marked ? '♥' : '♡'}
                         </button>
