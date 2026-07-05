@@ -194,6 +194,7 @@ export default function ChatPage() {
   const [ttsAutoPlay, setTtsAutoPlay] = useState(false)
   const [ttsSpeed, setTtsSpeed] = useState(1.0)
   const [ttsVolume, setTtsVolume] = useState(0.8)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null)
   const prevAmbientRef = useRef<{ sound: string | null; volume: number } | null>(null)
   const composeRef = useRef<HTMLTextAreaElement>(null)
@@ -1044,11 +1045,16 @@ export default function ChatPage() {
     } finally {
       setLoading(false)
       if (newMessages.length >= 2) {
-        const personaId = currentConversation?.personaId ?? 'default'
-        fetch('/api/extract-memory', {
+        // 旧记忆系统（memories 表）已停用自动写入，改由 persona-memory/extract 接管
+        fetch('/api/persona-memory/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: newMessages.slice(-6), persona_id: personaId })
+          body: JSON.stringify({
+            personaId: currentPersonaId,
+            conversationId: currentId,
+            messages: newMessages.slice(-6),
+            sourceType: 'auto_extract',
+          })
         }).catch(() => {})
       }
     }
@@ -1271,7 +1277,7 @@ export default function ChatPage() {
                             <button
                               className="delete-btn text-sm ml-2 opacity-0 transition-opacity shrink-0"
                               style={{ color: t.buttonText }}
-                              onClick={e => { e.stopPropagation(); deleteConversation(c.id) }}
+                              onClick={e => { e.stopPropagation(); setPendingDeleteId(c.id) }}
                             >
                               ×
                             </button>
@@ -2556,6 +2562,47 @@ return (
             </div>
             <div className="px-6 py-4 flex justify-end shrink-0" style={{ borderTop: `1px solid ${t.headerBorder}` }}>
               <button onClick={() => setShowPreview(false)} className="text-xs rounded-lg px-4 py-2" style={{ background: t.saveButton, color: t.saveButtonText }}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除对话确认弹窗 */}
+      {pendingDeleteId && (
+        <div className="fixed inset-0 flex items-center justify-center z-30" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
+          <div
+            className="rounded-2xl p-6 w-80"
+            style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', border: `1px solid ${t.headerBorder}`, boxShadow: t.inputShadow }}
+          >
+            <p className="text-sm font-medium mb-2" style={{ color: t.settingsText }}>删除这段对话</p>
+            <p className="text-xs mb-4" style={{ color: t.settingsSubText }}>可以只删除对话本身，也可以连同这段对话自动生成的记忆一起删除。</p>
+            <div className="space-y-2">
+              <button
+                onClick={() => { deleteConversation(pendingDeleteId); setPendingDeleteId(null) }}
+                className="w-full py-2 text-xs rounded-lg transition-opacity hover:opacity-70"
+                style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+              >仅删除对话</button>
+              <div>
+                <button
+                  onClick={async () => {
+                    await fetch('/api/persona-memory/delete-by-conversation', {
+                      method: 'DELETE',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ conversationId: pendingDeleteId }),
+                    }).catch(() => {})
+                    deleteConversation(pendingDeleteId)
+                    setPendingDeleteId(null)
+                  }}
+                  className="w-full py-2 text-xs rounded-lg font-medium transition-opacity hover:opacity-70"
+                  style={{ background: '#8b2d2d', color: '#fff' }}
+                >同时删除相关记忆</button>
+                <p className="text-xs mt-1" style={{ color: t.settingsSubText }}>仅能清除本次对话中自动生成的记忆，不影响导入或迁移的历史记忆</p>
+              </div>
+              <button
+                onClick={() => setPendingDeleteId(null)}
+                className="w-full py-2 text-xs rounded-lg transition-opacity hover:opacity-70"
+                style={{ color: t.settingsSubText }}
+              >取消</button>
             </div>
           </div>
         </div>
