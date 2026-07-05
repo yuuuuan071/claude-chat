@@ -50,3 +50,6 @@ next-env.d.ts
 # temporary fix scripts
 fix_*.py
 *.wav
+
+# local-only backups
+/public/stickers_backup/

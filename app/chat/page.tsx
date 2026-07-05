@@ -1986,10 +1986,10 @@ export default function ChatPage() {
                     {msg.role === 'user' ? (
                       <div
                         className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "")}
-                        style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)', boxShadow: msg.marked ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : undefined, position: 'relative' }}
+                        style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)', boxShadow: msg.marked ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : undefined, position: 'relative', overflow: 'hidden' }}
                       >
                         {msg.marked && (
-                          <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.12, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
+                          <div style={{ position: 'absolute', right: '10px', bottom: '8px', fontSize: '28px', opacity: 0.2, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
                         )}
                         {msg.content}
                       </div>
@@ -2017,10 +2017,10 @@ return (
                             <div
                               key={si}
                               className={"chat-bubble max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed" + (animatedIds.has(i) ? " bubble-animate" : "") + (si < segments.length - 1 ? " mb-1" : "")}
-                              style={{ background: isOnlySticker ? 'transparent' : t.assistantBubble, color: t.assistantText, border: isOnlySticker ? 'none' : `1px solid ${t.assistantBubbleBorder}`, backdropFilter: isOnlySticker ? 'none' : 'blur(10px)', boxShadow: [msg.marked ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined, position: 'relative' }}
+                              style={{ background: isOnlySticker ? 'transparent' : t.assistantBubble, color: t.assistantText, border: isOnlySticker ? 'none' : `1px solid ${t.assistantBubbleBorder}`, backdropFilter: isOnlySticker ? 'none' : 'blur(10px)', boxShadow: [(msg.marked && !isOnlySticker) ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined, position: 'relative', overflow: 'hidden' }}
                             >
-                              {msg.marked && (
-                                <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.12, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
+                              {msg.marked && !isOnlySticker && (
+                                <div style={{ position: 'absolute', right: '10px', bottom: '8px', fontSize: '28px', opacity: 0.2, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
                               )}
                               {renderMessageContent(seg.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, ''), currentConversation?.personaId ?? 'default').map((part, pi) =>
                                 typeof part === 'string' ? (
@@ -2060,8 +2060,11 @@ return (
                                     {part}
                                   </ReactMarkdown>
                                 ) : (
-                                  <div key={pi} style={{ display: 'inline-block', padding: '8px', margin: '4px 0', borderRadius: '16px', background: 'rgba(255,255,255,0.65)', backdropFilter: 'blur(6px)' }}>
+                                  <div key={pi} style={{ display: 'inline-block', margin: '4px 0', padding: '6px', borderRadius: '12px', background: 'rgba(255,255,255,0.55)', backdropFilter: 'blur(4px)', overflow: 'hidden', position: 'relative' }}>
                                     <img src={part.url} alt={part.name} title={part.name} style={{ display: 'block', height: '100px', objectFit: 'contain' }} />
+                                    {msg.marked && (
+                                      <div style={{ position: 'absolute', right: '4px', bottom: '4px', fontSize: '34px', opacity: 0.2, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
+                                    )}
                                   </div>
                                 )
                               )}
