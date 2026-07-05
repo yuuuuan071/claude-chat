@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { type Persona } from '../personas'
 
 type Tab = 'basic' | 'prompt' | 'voice' | 'memory'
@@ -45,6 +45,56 @@ export default function PersonaSettings({ persona, allPersonas, isNew, theme: t,
   const [voiceId, setVoiceId] = useState(persona.voice_id ?? 'male-qn-qingse')
   const [defaultAmbient, setDefaultAmbient] = useState<string | null>(persona.default_ambient ?? null)
   const [defaultIntimate, setDefaultIntimate] = useState(persona.default_intimate ?? false)
+  const [memories, setMemories] = useState<{id: string, content: string, source_type: string, created_at: string}[]>([])
+  const [memorySummary, setMemorySummary] = useState<string | null>(null)
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importing, setImporting] = useState(false)
+
+  const fetchMemories = async () => {
+    setMemoryLoading(true)
+    try {
+      const res = await fetch(`/api/persona-memory/list?personaId=${persona.id}`)
+      if (res.ok) {
+        const data = await res.json()
+        setMemories(data.memories ?? [])
+        setMemorySummary(data.summary ?? null)
+      }
+    } catch {}
+    setMemoryLoading(false)
+  }
+
+  useEffect(() => {
+    if (tab === 'memory') fetchMemories()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, persona.id])
+
+  const handleImport = async () => {
+    if (!importText.trim()) return
+    setImporting(true)
+    try {
+      const res = await fetch('/api/persona-memory/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personaId: persona.id,
+          conversationId: crypto.randomUUID(),
+          messages: [{ role: 'user', content: importText }],
+          sourceType: 'manual_import',
+        }),
+      })
+      if (res.ok) {
+        setImportText('')
+        await fetchMemories()
+      }
+    } catch {}
+    setImporting(false)
+  }
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'basic', label: '基础' },
@@ -277,8 +327,54 @@ export default function PersonaSettings({ persona, allPersonas, isNew, theme: t,
           {tab === 'memory' && (
             <div className="space-y-3">
               <p className="text-xs" style={{ color: t.settingsSubText }}>角色的记忆池。支持从对话中自动提取、手动添加、或导入外部文件。</p>
-              <div className="flex items-center justify-center py-12">
-                <p className="text-xs" style={{ color: t.settingsSubText }}>记忆系统开发中……</p>
+
+              {memorySummary ? (
+                <div className="rounded-xl px-4 py-3" style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}` }}>
+                  <p className="text-xs font-medium mb-1" style={{ color: t.settingsText }}>当前长期记忆</p>
+                  <p className="text-xs leading-relaxed" style={{ color: t.settingsSubText }}>{memorySummary}</p>
+                </div>
+              ) : (
+                <p className="text-xs" style={{ color: t.settingsSubText }}>暂无摘要，记忆积累到一定数量后自动生成</p>
+              )}
+
+              <div className="space-y-2" style={{ borderTop: `1px solid ${t.headerBorder}`, paddingTop: '16px' }}>
+                <label className="text-xs mb-1 block" style={{ color: t.settingsSubText }}>手动添加记忆</label>
+                <textarea
+                  className="w-full rounded-xl px-3 py-2 text-sm outline-none resize-none leading-relaxed"
+                  style={{ ...inputStyle, minHeight: '80px' }}
+                  value={importText}
+                  onChange={e => setImportText(e.target.value)}
+                  placeholder="粘贴一段文字，会被自动改写成角色视角的记忆"
+                />
+                <button
+                  onClick={handleImport}
+                  disabled={importing || !importText.trim()}
+                  className="text-xs px-4 py-2 rounded-xl transition-opacity hover:opacity-70 disabled:opacity-40"
+                  style={{ background: t.userBubble, color: t.headerText, border: `1px solid ${t.sendButton}` }}
+                >
+                  {importing ? '添加中…' : '添加为记忆'}
+                </button>
+              </div>
+
+              <div style={{ borderTop: `1px solid ${t.headerBorder}`, paddingTop: '16px' }}>
+                <label className="text-xs mb-2 block" style={{ color: t.settingsSubText }}>记忆列表（{memories.length}）</label>
+                {memoryLoading ? (
+                  <p className="text-xs text-center py-6" style={{ color: t.settingsSubText }}>加载中…</p>
+                ) : memories.length === 0 ? (
+                  <p className="text-xs text-center py-6" style={{ color: t.settingsSubText }}>暂无记忆</p>
+                ) : (
+                  <div className="space-y-2">
+                    {memories.map(m => (
+                      <div key={m.id} className="rounded-xl px-4 py-2.5 text-sm" style={{ border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}>
+                        <p className="leading-relaxed">{m.content}</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <span className="text-xs" style={{ color: t.settingsSubText }}>{formatDate(m.created_at)}</span>
+                          <span className="text-xs" style={{ color: t.settingsSubText }}>· {m.source_type === 'manual_import' ? '手动' : '自动'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

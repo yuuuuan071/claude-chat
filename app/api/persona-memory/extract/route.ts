@@ -3,10 +3,11 @@ import { getSupabase } from '@/lib/supabase'
 type IncomingMessage = { role: string; content: string }
 
 export async function POST(req: Request) {
-  const { personaId, conversationId, messages } = await req.json() as {
+  const { personaId, conversationId, messages, sourceType = 'auto_extract' } = await req.json() as {
     personaId?: string
     conversationId?: string
     messages?: IncomingMessage[]
+    sourceType?: string
   }
 
   if (!personaId || !conversationId || !messages || messages.length === 0) {
@@ -77,7 +78,7 @@ ${transcript}`
     items.map(item => ({
       persona_id: personaId,
       content: item.content,
-      source_type: 'auto_extract',
+      source_type: sourceType,
       source_conversation_id: conversationId,
     }))
   )
