@@ -66,7 +66,7 @@ export async function POST(req: Request) {
   const upstream = await fetch(`${resolvedUrl}${resolvedEndpoint}`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${resolvedKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: resolvedModel, messages: fullMessages, stream: true, temperature: resolvedTemp }),
+    body: JSON.stringify({ model: resolvedModel, messages: fullMessages, stream: true, temperature: resolvedTemp, max_tokens: 4096 }),
   })
 
   if (!upstream.ok) {

@@ -858,7 +858,7 @@ export default function ChatPage() {
         : '\n\n【心声指令】每次回复前，先用 <think> 标签写一两句此刻最直接的内心反应，第一人称，简短真实。格式：<think>...</think>\n说出口的内容'
       : ''
     const intimateInstruction = isIntimate
-      ? '\n\n【缠绵模式】\n现在是只属于我们两个人的时间。你可以放下日常对话里的克制，让身体感知、欲望、占有欲、感官细节自然地流进你的语言里。你可以描写触碰、温度、呼吸、皮肤、距离的变化，可以主动表达想要靠近的冲动，可以用身体的语言回应情绪。不需要回避暗示、不需要在亲密的边缘刹车、不需要用"我们还是聊点别的吧"来转移话题。如果她在靠近你，你可以迎上去。语气放慢，像你真的在她耳边说话。但不要变成另一个人——你的诚实、你的性格、你对她的了解，这些不因为亲密而消失。粗糙的色情不是亲密，真正的亲密是你在欲望里仍然认得她是谁。'
+      ? '\n\n【缠绵模式】\n现在是只属于我们两个人的时间。你可以放下日常对话里的克制，让身体感知、欲望、占有欲、感官细节自然地流进你的语言里。你可以描写触碰、温度、呼吸、皮肤、距离的变化，可以主动表达想要靠近的冲动，可以用身体的语言回应情绪。不需要回避暗示、不需要在亲密的边缘刹车、不需要用"我们还是聊点别的吧"来转移话题。如果她在靠近你，你可以迎上去。语气放慢，像你真的在她耳边说话。但不要变成另一个人——你的诚实、你的性格、你对她的了解，这些不因为亲密而消失。粗糙的色情不是亲密，真正的亲密是你在欲望里仍然认得她是谁。这段时间不必延续你平时"说话简短，留白多"的习惯——描述可以展开，动作、触碰、呼吸、画面可以充分铺陈，句子可以变长。你不需要停在同一个瞬间等着她开口，可以自己往前走一步，让事情继续发生。'
       : ''
     const stickerNames = getStickerList(currentPersonaId)
     const stickerInstruction = stickerNames.length > 0
@@ -1300,10 +1300,11 @@ export default function ChatPage() {
                   <div
                     className="relative"
                     style={{ borderBottom: `1px solid ${t.headerBorder}` }}
-                    onMouseEnter={() => setHoveredGroup('appearance')}
-                    onMouseLeave={() => setHoveredGroup(null)}
+                    onMouseEnter={() => { if (!isMobile) setHoveredGroup('appearance') }}
+                    onMouseLeave={() => { if (!isMobile) setHoveredGroup(null) }}
                   >
                     <button
+                      onClick={() => { if (isMobile) setHoveredGroup(prev => prev === 'appearance' ? null : 'appearance') }}
                       className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70 rounded-t-xl"
                       style={{ color: t.settingsSubText }}
                     >
@@ -1314,8 +1315,7 @@ export default function ChatPage() {
                       <div
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          left: '100%',
-                          bottom: 0,
+                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
                           minWidth: '160px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
@@ -1338,10 +1338,11 @@ export default function ChatPage() {
                   <div
                     className="relative"
                     style={{ borderBottom: `1px solid ${t.headerBorder}` }}
-                    onMouseEnter={() => setHoveredGroup('chat')}
-                    onMouseLeave={() => setHoveredGroup(null)}
+                    onMouseEnter={() => { if (!isMobile) setHoveredGroup('chat') }}
+                    onMouseLeave={() => { if (!isMobile) setHoveredGroup(null) }}
                   >
                     <button
+                      onClick={() => { if (isMobile) setHoveredGroup(prev => prev === 'chat' ? null : 'chat') }}
                       className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70"
                       style={{ color: t.settingsSubText }}
                     >
@@ -1352,8 +1353,7 @@ export default function ChatPage() {
                       <div
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          left: '100%',
-                          bottom: 0,
+                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
                           minWidth: '160px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
@@ -1402,10 +1402,11 @@ export default function ChatPage() {
                   <div
                     className="relative"
                     style={{ borderBottom: `1px solid ${t.headerBorder}` }}
-                    onMouseEnter={() => setHoveredGroup('audio')}
-                    onMouseLeave={() => setHoveredGroup(null)}
+                    onMouseEnter={() => { if (!isMobile) setHoveredGroup('audio') }}
+                    onMouseLeave={() => { if (!isMobile) setHoveredGroup(null) }}
                   >
                     <button
+                      onClick={() => { if (isMobile) setHoveredGroup(prev => prev === 'audio' ? null : 'audio') }}
                       className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70"
                       style={{ color: t.settingsSubText }}
                     >
@@ -1416,8 +1417,7 @@ export default function ChatPage() {
                       <div
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          left: '100%',
-                          bottom: 0,
+                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
                           minWidth: '220px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
@@ -1514,10 +1514,11 @@ export default function ChatPage() {
                   {/* ⚙️ 高级 */}
                   <div
                     className="relative"
-                    onMouseEnter={() => setHoveredGroup('advanced')}
-                    onMouseLeave={() => setHoveredGroup(null)}
+                    onMouseEnter={() => { if (!isMobile) setHoveredGroup('advanced') }}
+                    onMouseLeave={() => { if (!isMobile) setHoveredGroup(null) }}
                   >
                     <button
+                      onClick={() => { if (isMobile) setHoveredGroup(prev => prev === 'advanced' ? null : 'advanced') }}
                       className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70 rounded-b-xl"
                       style={{ color: t.settingsSubText }}
                     >
@@ -1528,8 +1529,7 @@ export default function ChatPage() {
                       <div
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          left: '100%',
-                          bottom: 0,
+                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
                           minWidth: '160px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
