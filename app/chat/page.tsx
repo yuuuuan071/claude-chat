@@ -1989,7 +1989,7 @@ export default function ChatPage() {
                         style={{ background: t.userBubble, color: t.userText, border: `1px solid ${t.userBubbleBorder}`, backdropFilter: 'blur(8px)', boxShadow: msg.marked ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : undefined, position: 'relative' }}
                       >
                         {msg.marked && (
-                          <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.08, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)' }}>🫆</div>
+                          <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.12, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
                         )}
                         {msg.content}
                       </div>
@@ -2020,7 +2020,7 @@ return (
                               style={{ background: isOnlySticker ? 'transparent' : t.assistantBubble, color: t.assistantText, border: isOnlySticker ? 'none' : `1px solid ${t.assistantBubbleBorder}`, backdropFilter: isOnlySticker ? 'none' : 'blur(10px)', boxShadow: [msg.marked ? 'inset 0 0 0 999px rgba(139, 45, 45, 0.08)' : null, intimateMode ? 'inset 0 0 0 999px rgba(255, 200, 150, 0.06)' : null].filter(Boolean).join(', ') || undefined, position: 'relative' }}
                             >
                               {msg.marked && (
-                                <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.08, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)' }}>🫆</div>
+                                <div style={{ position: 'absolute', right: '8px', bottom: '6px', fontSize: '28px', opacity: 0.12, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
                               )}
                               {renderMessageContent(seg.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, ''), currentConversation?.personaId ?? 'default').map((part, pi) =>
                                 typeof part === 'string' ? (
