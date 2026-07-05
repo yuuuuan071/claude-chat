@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { getSupabase } from '@/lib/supabase'
 
 function parseMemorySections(content: string, personaName: string | null): string {
   const sections: Record<string, string> = {}
@@ -25,7 +26,7 @@ type ApiConfig = {
 }
 
 export async function POST(req: Request) {
-  const { messages, systemPrompt, personaName, devMode, apiConfig } = await req.json()
+  const { messages, systemPrompt, personaName, personaId, devMode, apiConfig } = await req.json()
 
   let resolvedUrl: string
   let resolvedKey: string
@@ -56,9 +57,23 @@ export async function POST(req: Request) {
     memoryContent = parseMemorySections(fs.readFileSync(memoryPath, 'utf-8').trim(), personaName ?? null)
   } catch {}
 
+  let longTermMemory = ''
+  if (personaId) {
+    try {
+      const supabase = getSupabase()
+      const { data } = await supabase
+        .from('persona_summaries')
+        .select('summary')
+        .eq('persona_id', personaId)
+        .maybeSingle()
+      if (data?.summary) longTermMemory = data.summary
+    } catch {}
+  }
+
   const parts = [
     memoryContent ? `以下是关于用户的记忆，请在对话中自然地运用，不要刻意提及：\n${memoryContent}` : '',
     systemPrompt ?? '',
+    longTermMemory ? `【长期记忆】\n${longTermMemory}` : '',
   ].filter(Boolean)
   const fullSystemPrompt = parts.join('\n\n')
   const fullMessages = fullSystemPrompt ? [{ role: 'system', content: fullSystemPrompt }, ...messages] : messages

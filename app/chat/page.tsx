@@ -489,6 +489,7 @@ export default function ChatPage() {
             messages: [{ role: 'user', content: `慧妍刚刚发了一条动态：「${content}」。请以你的角色身份，简短评论这条动态（1-3句话，朋友圈评论的语气）。如果和你们之间的记忆或最近聊过的内容有关联，可以自然带到；没有关联也完全没问题，正常评论就好，不要刻意。` }],
             systemPrompt: persona.systemPrompt + recentContext,
             personaName: persona.name,
+            personaId: persona.id,
             ...getApiConfigForRequest(),
           }),
         })
@@ -532,6 +533,7 @@ export default function ChatPage() {
             messages: [{ role: 'user', content: `慧妍发了一条动态：「${postContent}」\n你评论了：「${comment.content}」\n慧妍回复你：「${text}」\n请用1-3句话，以朋友圈评论的语气自然回应她。不要解释，直接说。` }],
             systemPrompt: persona.systemPrompt,
             personaName: persona.name,
+            personaId: persona.id,
             ...getApiConfigForRequest(),
           }),
         })
@@ -892,6 +894,7 @@ export default function ChatPage() {
             body: JSON.stringify({
               messages: [{ role: 'user', content: summaryUserContent }],
               systemPrompt: '你是一个对话记忆整理助手。请以角色第一人称写一段简洁的内心记忆，记录和慧妍的对话要点、她的情绪状态和关键细节。只输出记忆内容，不加标题或说明。',
+              personaId: currentPersonaId,
               ...getApiConfigForRequest(),
             }),
           })
@@ -931,6 +934,7 @@ export default function ChatPage() {
           messages: messagesForAPI,
           systemPrompt: systemPromptWithMemory || undefined,
           personaName: currentPersonaName ?? undefined,
+          personaId: currentPersonaId,
           ...intimateApiOverride,
         }),
       })
