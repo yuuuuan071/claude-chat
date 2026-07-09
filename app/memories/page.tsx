@@ -172,7 +172,7 @@ export default function MemoriesPage() {
   const inputStyle = { background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: t.bg }}>
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: t.bg }}>
       {/* 顶部栏 */}
       <div
         className="flex items-center gap-3 px-4 py-3 shrink-0"
@@ -189,7 +189,7 @@ export default function MemoriesPage() {
         <span className="text-xs" style={{ color: t.settingsSubText }}>{memories.length} 条</span>
       </div>
 
-      <div className="flex-1 px-4 py-4 max-w-4xl w-full mx-auto space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 max-w-4xl w-full mx-auto space-y-3">
         {/* 工具栏 */}
         <div className="flex flex-wrap items-center gap-2">
           <select
