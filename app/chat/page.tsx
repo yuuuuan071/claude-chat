@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
-import { themes, themeOrder } from '../themes'
+import { themes, themeOrder, type Theme } from '../themes'
 import RainEffect from '../components/RainEffect'
 import SnowEffect from '../components/SnowEffect'
 import {
@@ -127,6 +128,38 @@ function formatPostTime(ts: number): string {
   return new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+const MOBILE_GROUP_TABS: { key: string; label: string }[] = [
+  { key: 'appearance', label: '🎨 外观' },
+  { key: 'chat', label: '💬 对话' },
+  { key: 'audio', label: '🔊 音效' },
+  { key: 'advanced', label: '⚙️ 高级' },
+]
+
+function MobileGroupTabs({ theme, active, onSelect }: { theme: Theme; active: string | null; onSelect: (key: string) => void }) {
+  return (
+    <div
+      className="flex items-center"
+      style={{
+        position: 'sticky',
+        top: 0,
+        background: theme.settingsBg,
+        borderBottom: `1px solid ${theme.headerBorder}`,
+        zIndex: 1,
+      }}
+    >
+      {MOBILE_GROUP_TABS.map(g => (
+        <button
+          key={g.key}
+          onClick={() => onSelect(g.key)}
+          className="flex-1 text-center px-1 py-2 text-xs font-medium transition-opacity hover:opacity-70"
+          style={{ color: active === g.key ? theme.sendButton : theme.settingsSubText }}
+        >
+          {g.label}
+        </button>
+      ))}
+    </div>
+  )
+}
 
 export default function ChatPage() {
   const router = useRouter()
@@ -200,6 +233,7 @@ export default function ChatPage() {
   const composeRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const submenuPortalRef = useRef<HTMLDivElement>(null)
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -392,7 +426,11 @@ export default function ChatPage() {
 
   useEffect(() => {
     const handle = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        !(submenuPortalRef.current && submenuPortalRef.current.contains(target))
+      ) {
         setShowMenu(false)
       }
     }
@@ -1304,6 +1342,7 @@ export default function ChatPage() {
                     border: `1px solid ${t.headerBorder}`,
                     boxShadow: t.inputShadow,
                     zIndex: 9999,
+                    ...(isMobile ? { maxHeight: 'calc(100vh - 140px)', overflowY: 'auto' } : {}),
                   }}
                 >
                   {/* 🎨 外观 */}
@@ -1321,11 +1360,15 @@ export default function ChatPage() {
                       <span>🎨 外观</span>
                       <span style={{ fontSize: '10px' }}>▸</span>
                     </button>
-                    {hoveredGroup === 'appearance' && (
+                    {hoveredGroup === 'appearance' && (() => {
+                      const menu = (
                       <div
+                        ref={submenuPortalRef}
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
+                          ...(isMobile
+                            ? { position: 'fixed', left: 12, top: 'auto', bottom: 72, maxWidth: 'calc(82vw - 24px)', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', zIndex: 10000 }
+                            : { left: '100%', bottom: 0 }),
                           minWidth: '160px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
@@ -1333,6 +1376,7 @@ export default function ChatPage() {
                           boxShadow: t.inputShadow,
                         }}
                       >
+                        {isMobile && <MobileGroupTabs theme={t} active={hoveredGroup} onSelect={setHoveredGroup} />}
                         <button
                           onClick={cycleTheme}
                           className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
@@ -1341,7 +1385,9 @@ export default function ChatPage() {
                           主题：{t.name}
                         </button>
                       </div>
-                    )}
+                      )
+                      return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
+                    })()}
                   </div>
 
                   {/* 💬 对话 */}
@@ -1359,11 +1405,15 @@ export default function ChatPage() {
                       <span>💬 对话</span>
                       <span style={{ fontSize: '10px' }}>▸</span>
                     </button>
-                    {hoveredGroup === 'chat' && (
+                    {hoveredGroup === 'chat' && (() => {
+                      const menu = (
                       <div
+                        ref={submenuPortalRef}
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
+                          ...(isMobile
+                            ? { position: 'fixed', left: 12, top: 'auto', bottom: 72, maxWidth: 'calc(82vw - 24px)', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', zIndex: 10000 }
+                            : { left: '100%', bottom: 0 }),
                           minWidth: '160px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
@@ -1371,6 +1421,7 @@ export default function ChatPage() {
                           boxShadow: t.inputShadow,
                         }}
                       >
+                        {isMobile && <MobileGroupTabs theme={t} active={hoveredGroup} onSelect={setHoveredGroup} />}
                         <button
                           onClick={() => openSettings()}
                           className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
@@ -1405,7 +1456,9 @@ export default function ChatPage() {
                           </button>
                         )}
                       </div>
-                    )}
+                      )
+                      return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
+                    })()}
                   </div>
 
                   {/* 🔊 音效 */}
@@ -1423,11 +1476,15 @@ export default function ChatPage() {
                       <span>🔊 音效</span>
                       <span style={{ fontSize: '10px' }}>▸</span>
                     </button>
-                    {hoveredGroup === 'audio' && (
+                    {hoveredGroup === 'audio' && (() => {
+                      const menu = (
                       <div
+                        ref={submenuPortalRef}
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
+                          ...(isMobile
+                            ? { position: 'fixed', left: 12, top: 'auto', bottom: 72, maxWidth: 'calc(82vw - 24px)', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', zIndex: 10000 }
+                            : { left: '100%', bottom: 0 }),
                           minWidth: '220px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
@@ -1435,6 +1492,7 @@ export default function ChatPage() {
                           boxShadow: t.inputShadow,
                         }}
                       >
+                        {isMobile && <MobileGroupTabs theme={t} active={hoveredGroup} onSelect={setHoveredGroup} />}
                         <button
                           onClick={() => { setTtsAutoPlay(prev => !prev); setShowMenu(false) }}
                           className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
@@ -1518,7 +1576,9 @@ export default function ChatPage() {
                             style={{ width: '100%', accentColor: t.sendButton }} />
                         </div>
                       </div>
-                    )}
+                      )
+                      return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
+                    })()}
                   </div>
 
                   {/* ⚙️ 高级 */}
@@ -1535,11 +1595,15 @@ export default function ChatPage() {
                       <span>⚙️ 高级</span>
                       <span style={{ fontSize: '10px' }}>▸</span>
                     </button>
-                    {hoveredGroup === 'advanced' && (
+                    {hoveredGroup === 'advanced' && (() => {
+                      const menu = (
                       <div
+                        ref={submenuPortalRef}
                         className="absolute rounded-xl overflow-hidden"
                         style={{
-                          ...(isMobile ? { top: '100%', left: 0, bottom: 'auto', maxWidth: 'calc(100vw - 32px)' } : { left: '100%', bottom: 0 }),
+                          ...(isMobile
+                            ? { position: 'fixed', left: 12, top: 'auto', bottom: 72, maxWidth: 'calc(82vw - 24px)', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', zIndex: 10000 }
+                            : { left: '100%', bottom: 0 }),
                           minWidth: '160px',
                           background: t.settingsBg,
                           backdropFilter: 'blur(16px)',
@@ -1547,6 +1611,7 @@ export default function ChatPage() {
                           boxShadow: t.inputShadow,
                         }}
                       >
+                        {isMobile && <MobileGroupTabs theme={t} active={hoveredGroup} onSelect={setHoveredGroup} />}
                         <button
                           onClick={() => { setApiDraft({ ...DEFAULT_API_DRAFT }); setApiTestStatus('idle'); setModelList([]); setShowApiSettings(true); setShowMenu(false) }}
                           className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
@@ -1571,7 +1636,9 @@ export default function ChatPage() {
                           </button>
                         )}
                       </div>
-                    )}
+                      )
+                      return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
+                    })()}
                   </div>
                 </div>
               )}
