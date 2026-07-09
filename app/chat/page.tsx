@@ -44,22 +44,65 @@ async function streamToString(res: Response): Promise<string> {
   return result.trim()
 }
 
+// 裸文本心声变体："【心声】""（心声）""(心声)" 开头的段落，仅在段落开头
+// （消息开头或紧跟 \n）触发，避免误伤正文中间提到"心声"二字的句子。
+const THINK_MARKER_ALT = '(?:【心声】|（心声）|\\(心声\\))'
+// 用于整体移除：从标记起到最近的 \n\n 为止；若之后没有空行则一路吃到字符串末尾。
+const THINK_MARKER_STRIP_RE = new RegExp(`(?:^|\\n)${THINK_MARKER_ALT}[\\s\\S]*?(?=\\n\\n|$)`, 'g')
+// 用于提取展示：只取"已闭合"（后面确实跟着空行）的段落正文，和 <think> 标签的语义对齐。
+const THINK_MARKER_EXTRACT_RE = new RegExp(`(?:^|\\n)${THINK_MARKER_ALT}([\\s\\S]*?)\\n\\n`, 'g')
+// 用于流式阶段判断：单次匹配，同上要求跟着空行才算"已闭合"。
+const THINK_MARKER_CLOSED_RE = new RegExp(`(?:^|\\n)${THINK_MARKER_ALT}([\\s\\S]*?)\\n\\n`)
+// 用于流式阶段判断：标记已出现但还没被判定为"已闭合"，即仍在流式输出中。
+const THINK_MARKER_OPEN_RE = new RegExp(`(?:^|\\n)${THINK_MARKER_ALT}`)
+
+// 移除所有已闭合的 <think>/<thinking> 块和"【心声】"类裸文本段落（任意位置、可多个、跨多行）；
+// 若还剩一个未闭合的开标签，或一个后面没有空行的心声段落（流式输出中还没收全），
+// 从该处起截断到字符串末尾全部隐藏。
+function stripThink(content: string): string {
+  const withoutClosedTags = content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '')
+  const withoutMarkers = withoutClosedTags.replace(THINK_MARKER_STRIP_RE, '')
+  const dangling = withoutMarkers.match(/<(?:think|thinking)>/)
+  return dangling ? withoutMarkers.slice(0, dangling.index) : withoutMarkers
+}
+
+// 提取所有已闭合 think 块 + 心声段落的内心独白正文，合并后用于"心声"折叠面板展示
+function extractThinkContent(content: string): string {
+  const blocks: string[] = []
+  const tagRe = /<(think|thinking)>([\s\S]*?)<\/\1>/g
+  let tagMatch: RegExpExecArray | null
+  while ((tagMatch = tagRe.exec(content))) blocks.push(tagMatch[2])
+
+  const markerRe = new RegExp(THINK_MARKER_EXTRACT_RE.source, 'g')
+  let markerMatch: RegExpExecArray | null
+  while ((markerMatch = markerRe.exec(content))) blocks.push(markerMatch[1])
+
+  return blocks.join('\n\n')
+}
+
 type StreamPhase = 'waiting' | 'thinking' | 'typing'
 
 function classifyStreamContent(content: string): { phase: StreamPhase; thinkText: string; mainText: string } {
   if (content === '') return { phase: 'waiting', thinkText: '', mainText: '' }
 
-  const closed = content.match(/<(think|thinking)>([\s\S]*?)<\/\1>\n?/)
-  if (closed) {
-    return { phase: 'typing', thinkText: closed[2], mainText: content.slice(closed.index! + closed[0].length) }
+  const closedTag = content.match(/<(think|thinking)>([\s\S]*?)<\/\1>/)
+  const closedMarker = content.match(THINK_MARKER_CLOSED_RE)
+  if (closedTag || closedMarker) {
+    const thinkText = closedTag ? closedTag[2] : closedMarker![1]
+    return { phase: 'typing', thinkText, mainText: stripThink(content) }
+  }
+
+  const open = content.match(/<(?:think|thinking)>/)
+  if (open) {
+    return { phase: 'thinking', thinkText: content.slice(open.index! + open[0].length), mainText: content.slice(0, open.index) }
+  }
+
+  const openMarker = content.match(THINK_MARKER_OPEN_RE)
+  if (openMarker) {
+    return { phase: 'thinking', thinkText: content.slice(openMarker.index! + openMarker[0].length), mainText: content.slice(0, openMarker.index) }
   }
 
   const openTags = ['<think>', '<thinking>']
-  const openTag = openTags.find(tag => content.startsWith(tag))
-  if (openTag) {
-    return { phase: 'thinking', thinkText: content.slice(openTag.length), mainText: '' }
-  }
-
   const stillAmbiguous = openTags.some(tag => tag.startsWith(content))
   if (stillAmbiguous) return { phase: 'waiting', thinkText: '', mainText: '' }
 
@@ -126,6 +169,20 @@ function formatPostTime(ts: number): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
   return new Date(ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+// 手机浏览器的自动播放策略要求 play() 必须由用户手势直接触发；非手势路径
+// （如流式结束后定时触发的自动朗读）会被拒绝并抛出 NotAllowedError。
+// 统一在这里吞掉该错误，避免未捕获 rejection 弹出报错遮罩；其他类型错误仍打日志。
+function safePlayAudio(audio: HTMLAudioElement, onRejected?: () => void): void {
+  audio.play().catch((err: unknown) => {
+    if (err instanceof DOMException && err.name === 'NotAllowedError') {
+      console.warn('audio playback blocked by browser autoplay policy:', err)
+    } else {
+      console.error('audio playback failed:', err)
+    }
+    onRejected?.()
+  })
 }
 
 const MOBILE_GROUP_TABS: { key: string; label: string }[] = [
@@ -356,7 +413,7 @@ export default function ChatPage() {
       const audio = new Audio(`/audio/${ambientSound}.mp3`)
       audio.loop = true
       audio.volume = ambientVolume
-      audio.play().catch(() => {})
+      safePlayAudio(audio)
       ambientAudioRef.current = audio
     } else {
       if (ambientAudioRef.current) {
@@ -716,7 +773,7 @@ export default function ChatPage() {
       ttsAudioRef.current = audio
       audio.onended = () => setPlayingMsgIdx(null)
       audio.onerror = () => setPlayingMsgIdx(null)
-      audio.play()
+      safePlayAudio(audio, () => setPlayingMsgIdx(null))
       setPlayingMsgIdx(idx)
       return
     }
@@ -746,7 +803,7 @@ export default function ChatPage() {
       ttsAudioRef.current = audio
       audio.onended = () => { setPlayingMsgIdx(null) }
       audio.onerror = () => { setPlayingMsgIdx(null) }
-      audio.play()
+      safePlayAudio(audio, () => setPlayingMsgIdx(null))
     } catch {
       setPlayingMsgIdx(null)
     } finally {
@@ -1065,7 +1122,7 @@ export default function ChatPage() {
         await saveConversationToDB(finalConv)
 
         if (ttsAutoPlay && assistantContent) {
-          const cleanText = assistantContent.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '').replace(/\[sticker:[^\]]+\]/g, '')
+          const cleanText = stripThink(assistantContent).replace(/\[sticker:[^\]]+\]/g, '')
           if (cleanText.trim()) {
             setTimeout(() => playTTS(newMessages.length, cleanText), 300)
           }
@@ -1561,7 +1618,7 @@ export default function ChatPage() {
                                     const audio = new Audio(url)
                                     audio.volume = ttsVolume
                                     audio.onended = () => URL.revokeObjectURL(url)
-                                    audio.play()
+                                    safePlayAudio(audio)
                                   } catch {}
                                 }}
                                 className="text-xs px-1.5 py-0.5 rounded-md transition-opacity hover:opacity-70"
@@ -2045,9 +2102,8 @@ export default function ChatPage() {
                           </details>
                         )
                       }
-                      const thinkMatch = msg.content.match(/<(think|thinking)>([\s\S]*?)<\/\1>/)
-                      if (!thinkMatch) return null
-                      const thinkContent = thinkMatch[2]
+                      const thinkContent = extractThinkContent(msg.content)
+                      if (!thinkContent) return null
                       return (
                         <details className="mb-1 max-w-[70%]" style={{ fontSize: '0.72rem' }}>
                           <summary style={{ cursor: 'pointer', color: t.settingsSubText, listStyle: 'none', display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 6px', userSelect: 'none' }}>
@@ -2077,18 +2133,14 @@ export default function ChatPage() {
                         const rawSegments = streamInfo.mainText.split(/\n\n+/).filter(s => s.trim()).filter(s => !/^[-—\s]+$/.test(s.trim()))
                         segments = rawSegments.length === 0 ? [streamInfo.mainText] : rawSegments
                       } else {
-                        const cleanContent = (() => {
-                          const stripped = msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '')
-                          const dangling = stripped.match(/<(?:think|thinking)>/)
-                          return dangling ? stripped.slice(0, dangling.index) : stripped
-                        })()
+                        const cleanContent = stripThink(msg.content)
                         const rawSegments = cleanContent.split(/\n\n+/).filter(s => s.trim()).filter(s => !/^[-—\s]+$/.test(s.trim()))
                         segments = rawSegments.length === 0 ? [''] : rawSegments
                       }
 return (
                         <>
                           {segments.map((seg, si) => {
-                            const strippedSeg = seg.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '').replace(/\[sticker:[^\]]+\]/g, '').trim()
+                            const strippedSeg = seg.replace(/\[sticker:[^\]]+\]/g, '').trim()
                             const isOnlySticker = !strippedSeg && /\[sticker:[^\]]+\]/.test(seg)
                             return (
                             <div
@@ -2099,7 +2151,7 @@ return (
                               {msg.marked && !isOnlySticker && (
                                 <div style={{ position: 'absolute', right: '10px', bottom: '8px', fontSize: '28px', opacity: 0.2, pointerEvents: 'none', userSelect: 'none', transform: 'rotate(-15deg)', filter: 'grayscale(1) brightness(10)' }}>🫆</div>
                               )}
-                              {renderMessageContent(seg.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, ''), currentConversation?.personaId ?? 'default').map((part, pi) =>
+                              {renderMessageContent(seg, currentConversation?.personaId ?? 'default').map((part, pi) =>
                                 typeof part === 'string' ? (
                                   <ReactMarkdown
                                     key={pi}
@@ -2159,7 +2211,7 @@ return (
                         {msg.role === 'assistant' && (
                           <>
                             <button
-                              onClick={() => playTTS(i, msg.content.replace(/<(think|thinking)>[\s\S]*?<\/\1>\n?/g, '').replace(/\[sticker:[^\]]+\]/g, ''))}
+                              onClick={() => playTTS(i, stripThink(msg.content).replace(/\[sticker:[^\]]+\]/g, ''))}
                               className="transition-opacity hover:opacity-100"
                               style={{ fontSize: '0.72rem', color: t.timestampText, opacity: 0.55, lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
                             >

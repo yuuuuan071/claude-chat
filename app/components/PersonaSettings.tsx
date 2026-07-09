@@ -50,6 +50,10 @@ export default function PersonaSettings({ persona, allPersonas, isNew, theme: t,
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null)
+  const [editingMemoryText, setEditingMemoryText] = useState('')
+  const [memoriesDirty, setMemoriesDirty] = useState(false)
+  const [resummarizing, setResummarizing] = useState(false)
 
   const fetchMemories = async () => {
     setMemoryLoading(true)
@@ -62,6 +66,65 @@ export default function PersonaSettings({ persona, allPersonas, isNew, theme: t,
       }
     } catch {}
     setMemoryLoading(false)
+    setMemoriesDirty(false)
+  }
+
+  const startEditMemory = (m: { id: string; content: string }) => {
+    setEditingMemoryId(m.id)
+    setEditingMemoryText(m.content)
+  }
+
+  const cancelEditMemory = () => {
+    setEditingMemoryId(null)
+    setEditingMemoryText('')
+  }
+
+  const saveEditMemory = async (id: string) => {
+    const content = editingMemoryText.trim()
+    if (!content) return
+    try {
+      const res = await fetch('/api/persona-memory/update', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, content }),
+      })
+      if (res.ok) {
+        setMemories(prev => prev.map(m => m.id === id ? { ...m, content } : m))
+        setMemoriesDirty(true)
+        cancelEditMemory()
+      }
+    } catch {}
+  }
+
+  const deleteMemory = async (id: string) => {
+    try {
+      const res = await fetch('/api/persona-memory/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (res.ok) {
+        setMemories(prev => prev.filter(m => m.id !== id))
+        setMemoriesDirty(true)
+      }
+    } catch {}
+  }
+
+  const regenerateSummary = async () => {
+    setResummarizing(true)
+    try {
+      const res = await fetch('/api/persona-memory/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personaId: persona.id, force: true }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMemorySummary(data.summary ?? null)
+        setMemoriesDirty(false)
+      }
+    } catch {}
+    setResummarizing(false)
   }
 
   useEffect(() => {
@@ -138,7 +201,13 @@ export default function PersonaSettings({ persona, allPersonas, isNew, theme: t,
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
       audio.onended = () => URL.revokeObjectURL(url)
-      audio.play()
+      audio.play().catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === 'NotAllowedError') {
+          console.warn('audio playback blocked by browser autoplay policy:', err)
+        } else {
+          console.error('audio playback failed:', err)
+        }
+      })
     } catch {}
   }
 
@@ -358,6 +427,19 @@ export default function PersonaSettings({ persona, allPersonas, isNew, theme: t,
 
               <div style={{ borderTop: `1px solid ${t.headerBorder}`, paddingTop: '16px' }}>
                 <label className="text-xs mb-2 block" style={{ color: t.settingsSubText }}>记忆列表（{memories.length}）</label>
+                {memoriesDirty && (
+                  <div className="rounded-xl px-3 py-2 mb-2 flex items-center justify-between gap-2" style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}` }}>
+                    <span className="text-xs" style={{ color: t.settingsSubText }}>记忆已变更，摘要尚未更新</span>
+                    <button
+                      onClick={regenerateSummary}
+                      disabled={resummarizing}
+                      className="text-xs px-3 py-1 rounded-lg transition-opacity hover:opacity-70 disabled:opacity-40 shrink-0"
+                      style={{ background: t.userBubble, color: t.headerText, border: `1px solid ${t.sendButton}` }}
+                    >
+                      {resummarizing ? '生成中…' : '重新生成摘要'}
+                    </button>
+                  </div>
+                )}
                 {memoryLoading ? (
                   <p className="text-xs text-center py-6" style={{ color: t.settingsSubText }}>加载中…</p>
                 ) : memories.length === 0 ? (
@@ -366,11 +448,45 @@ export default function PersonaSettings({ persona, allPersonas, isNew, theme: t,
                   <div className="space-y-2">
                     {memories.map(m => (
                       <div key={m.id} className="rounded-xl px-4 py-2.5 text-sm" style={{ border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}>
-                        <p className="leading-relaxed">{m.content}</p>
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <span className="text-xs" style={{ color: t.settingsSubText }}>{formatDate(m.created_at)}</span>
-                          <span className="text-xs" style={{ color: t.settingsSubText }}>· {m.source_type === 'manual_import' ? '手动' : '自动'}</span>
-                        </div>
+                        {editingMemoryId === m.id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none leading-relaxed"
+                              style={{ ...inputStyle, minHeight: '60px' }}
+                              value={editingMemoryText}
+                              onChange={e => setEditingMemoryText(e.target.value)}
+                              autoFocus
+                            />
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => saveEditMemory(m.id)}
+                                disabled={!editingMemoryText.trim()}
+                                className="text-xs px-3 py-1 rounded-lg transition-opacity hover:opacity-70 disabled:opacity-40"
+                                style={{ background: t.userBubble, color: t.headerText, border: `1px solid ${t.sendButton}` }}
+                              >
+                                保存
+                              </button>
+                              <button
+                                onClick={cancelEditMemory}
+                                className="text-xs px-3 py-1 rounded-lg transition-opacity hover:opacity-70"
+                                style={{ color: t.settingsSubText, border: `1px solid ${t.settingsInputBorder}` }}
+                              >
+                                取消
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="leading-relaxed">{m.content}</p>
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className="text-xs" style={{ color: t.settingsSubText }}>{formatDate(m.created_at)}</span>
+                              <span className="text-xs" style={{ color: t.settingsSubText }}>· {m.source_type === 'manual_import' ? '手动' : '自动'}</span>
+                              <span className="flex-1" />
+                              <button onClick={() => startEditMemory(m)} className="text-xs transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>编辑</button>
+                              <button onClick={() => deleteMemory(m.id)} className="text-xs transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>删除</button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>

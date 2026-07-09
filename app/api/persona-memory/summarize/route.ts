@@ -4,7 +4,7 @@ import { logApiUsage, resolveMemoryApiKey } from '@/lib/apiUsage'
 const MODEL = 'deepseek/deepseek-chat'
 
 export async function POST(req: Request) {
-  const { personaId } = await req.json() as { personaId?: string }
+  const { personaId, force = false } = await req.json() as { personaId?: string; force?: boolean }
   if (!personaId) {
     return Response.json({ error: 'missing personaId' }, { status: 400 })
   }
@@ -31,7 +31,11 @@ export async function POST(req: Request) {
   const memoryCountAtSummary = existingSummary?.memory_count_at_summary ?? 0
   const currentMemoryCount = memories?.length ?? 0
 
-  if (currentMemoryCount <= memoryCountAtSummary + 5) {
+  if (currentMemoryCount === 0) {
+    return Response.json({ skipped: true, reason: 'no memories' })
+  }
+
+  if (!force && currentMemoryCount <= memoryCountAtSummary + 5) {
     return Response.json({ skipped: true, reason: 'not enough new memories' })
   }
 
