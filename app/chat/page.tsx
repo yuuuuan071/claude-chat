@@ -1677,6 +1677,13 @@ export default function ChatPage() {
                           API 设置{activeConfigName ? ` · ${activeConfigName}` : ''}
                         </button>
                         <button
+                          onClick={() => { router.push('/memories'); setShowMenu(false) }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                        >
+                          记忆管理
+                        </button>
+                        <button
                           onClick={() => { setDevPasswordMode('verify'); setDevPasswordInput(''); setDevPasswordError(''); setShowDevPasswordDialog(true) }}
                           className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
                           style={{ color: t.settingsText, borderBottom: devMode ? `1px solid ${t.headerBorder}` : undefined }}
