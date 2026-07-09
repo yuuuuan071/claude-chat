@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { getSupabase } from '@/lib/supabase'
+import { logApiUsage } from '@/lib/apiUsage'
 
 function parseMemorySections(content: string, personaName: string | null): string {
   const sections: Record<string, string> = {}
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
   const fullSystemPrompt = parts.join('\n\n')
   const fullMessages = fullSystemPrompt ? [{ role: 'system', content: fullSystemPrompt }, ...messages] : messages
 
+  const startedAt = Date.now()
   const upstream = await fetch(`${resolvedUrl}${resolvedEndpoint}`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${resolvedKey}`, 'Content-Type': 'application/json' },
@@ -86,8 +88,12 @@ export async function POST(req: Request) {
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => '')
+    logApiUsage({ purpose: 'chat', model: resolvedModel, duration_ms: Date.now() - startedAt, status: 'error', error_message: `upstream ${upstream.status}: ${errText}` })
     return Response.json({ error: `上游 API 错误 (${upstream.status})${errText ? '：' + errText.slice(0, 200) : ''}` }, { status: upstream.status })
   }
+
+  // 流式响应不在服务端消费 body，拿不到 usage，仅记录耗时与状态，避免拖慢首字节
+  logApiUsage({ purpose: 'chat', model: resolvedModel, duration_ms: Date.now() - startedAt, status: 'success' })
 
   return new Response(upstream.body, { headers: { 'Content-Type': 'text/event-stream' } })
 }

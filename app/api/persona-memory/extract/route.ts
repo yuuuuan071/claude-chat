@@ -1,4 +1,7 @@
 import { getSupabase } from '@/lib/supabase'
+import { logApiUsage, resolveMemoryApiKey } from '@/lib/apiUsage'
+
+const MODEL = 'deepseek/deepseek-chat'
 
 type IncomingMessage = { role: string; content: string }
 
@@ -20,8 +23,9 @@ export async function POST(req: Request) {
     .map(m => `${m.role === 'user' ? '慧妍' : '角色'}: ${m.content}`)
     .join('\n')
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = resolveMemoryApiKey()
   const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
+  const startedAt = Date.now()
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
@@ -30,7 +34,7 @@ export async function POST(req: Request) {
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: 'deepseek/deepseek-chat',
+      model: MODEL,
       max_tokens: 800,
       messages: [{
         role: 'user',
@@ -51,16 +55,26 @@ ${transcript}`
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
     console.error('persona-memory/extract: upstream error', res.status, errText.slice(0, 500))
+    logApiUsage({ purpose: 'memory_extract', model: MODEL, duration_ms: Date.now() - startedAt, status: 'error', error_message: `upstream ${res.status}: ${errText}` })
     return Response.json({ error: `记忆提取失败：上游 API 错误 (${res.status})` }, { status: 500 })
   }
 
-  let data: { choices?: Array<{ message?: { content?: string } }> }
+  let data: { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
   try {
     data = await res.json()
   } catch (e) {
     console.error('persona-memory/extract: failed to parse upstream response:', e)
+    logApiUsage({ purpose: 'memory_extract', model: MODEL, duration_ms: Date.now() - startedAt, status: 'error', error_message: `response parse failed: ${e}` })
     return Response.json({ error: '记忆提取失败：上游响应解析出错' }, { status: 500 })
   }
+  logApiUsage({
+    purpose: 'memory_extract',
+    model: MODEL,
+    prompt_tokens: data.usage?.prompt_tokens,
+    completion_tokens: data.usage?.completion_tokens,
+    duration_ms: Date.now() - startedAt,
+    status: 'success',
+  })
   const text = data.choices?.[0]?.message?.content?.trim() || '[]'
 
   let items: Array<{ content: string }>
