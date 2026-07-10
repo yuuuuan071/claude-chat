@@ -1140,7 +1140,6 @@ export default function ChatPage() {
     } finally {
       setLoading(false)
       if (newMessages.length >= 2) {
-        // 旧记忆系统（memories 表）已停用自动写入，改由 persona-memory/extract 接管
         fetch('/api/persona-memory/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
