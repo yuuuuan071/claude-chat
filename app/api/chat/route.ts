@@ -1,22 +1,5 @@
-import fs from 'fs'
-import path from 'path'
 import { getSupabase } from '@/lib/supabase'
 import { logApiUsage } from '@/lib/apiUsage'
-
-function parseMemorySections(content: string, personaName: string | null): string {
-  const sections: Record<string, string> = {}
-  let current = ''
-  for (const line of content.split('\n')) {
-    const heading = line.match(/^## (.+)/)
-    if (heading) { current = heading[1].trim(); if (!sections[current]) sections[current] = '' }
-    else if (current) sections[current] += line + '\n'
-  }
-  const parts: string[] = []
-  const general = sections['通用']?.trim()
-  if (general) parts.push(general)
-  if (personaName) { const specific = sections[personaName]?.trim(); if (specific) parts.push(specific) }
-  return parts.join('\n')
-}
 
 type ApiConfig = {
   baseUrl: string
@@ -27,7 +10,7 @@ type ApiConfig = {
 }
 
 export async function POST(req: Request) {
-  const { messages, systemPrompt, personaName, personaId, devMode, apiConfig } = await req.json()
+  const { messages, systemPrompt, personaId, devMode, apiConfig } = await req.json()
 
   let resolvedUrl: string
   let resolvedKey: string
@@ -52,12 +35,6 @@ export async function POST(req: Request) {
     return Response.json({ error: '请先在"API 设置"中配置并应用一个 API 配置，或开启开发者模式' }, { status: 400 })
   }
 
-  let memoryContent = ''
-  try {
-    const memoryPath = path.join(process.cwd(), 'memory.md')
-    memoryContent = parseMemorySections(fs.readFileSync(memoryPath, 'utf-8').trim(), personaName ?? null)
-  } catch {}
-
   let longTermMemory = ''
   if (personaId) {
     try {
@@ -72,7 +49,6 @@ export async function POST(req: Request) {
   }
 
   const parts = [
-    memoryContent ? `以下是关于用户的记忆，请在对话中自然地运用，不要刻意提及：\n${memoryContent}` : '',
     systemPrompt ?? '',
     longTermMemory ? `【长期记忆】\n${longTermMemory}` : '',
   ].filter(Boolean)

@@ -1,7 +1,10 @@
 import { getSupabase } from './supabase'
 
 export function resolveMemoryApiKey(): string {
-  return process.env.OPENROUTER_MEMORY_API_KEY || process.env.ANTHROPIC_API_KEY || ''
+  const memoryKey = process.env.OPENROUTER_MEMORY_API_KEY
+  if (memoryKey) return memoryKey
+  console.warn('resolveMemoryApiKey: OPENROUTER_MEMORY_API_KEY not set, falling back to ANTHROPIC_API_KEY')
+  return process.env.ANTHROPIC_API_KEY || ''
 }
 
 type ApiUsageEvent = {

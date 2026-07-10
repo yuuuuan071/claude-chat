@@ -15,13 +15,6 @@ import {
   saveConversationToDB,
   buildConversationPayload,
 } from '../conversations'
-import {
-  type MemoryItem,
-  loadMemory,
-  saveMemory,
-  createMemoryItem,
-  buildMemoryPrompt,
-} from '../memory'
 import { type Persona, FALLBACK_PERSONAS, adaptPersona } from '../personas'
 import { generateId } from '../utils'
 import PersonaSettings from '../components/PersonaSettings'
@@ -229,7 +222,6 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [playingMsgIdx, setPlayingMsgIdx] = useState<number | null>(null)
-  const [showMemory, setShowMemory] = useState(false)
   const [showApiSettings, setShowApiSettings] = useState(false)
   const [devMode, setDevMode] = useState(false)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
@@ -257,8 +249,6 @@ export default function ChatPage() {
   const [editingPersona, setEditingPersona] = useState<Persona | null>(null)
   const [editingIsNew, setEditingIsNew] = useState(false)
   const [newPersonaName, setNewPersonaName] = useState('')
-  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([])
-  const [newMemoryInput, setNewMemoryInput] = useState('')
   const [animatedIds, setAnimatedIds] = useState<Set<number>>(new Set())
   const [themeKey, setThemeKey] = useState('morning')
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -344,7 +334,6 @@ export default function ChatPage() {
         const savedIntimate = localStorage.getItem('intimate-mode')
         if (savedIntimate === 'true') setIntimateMode(true)
       } catch {}
-      setMemoryItems(loadMemory())
       try {
         const savedPosts = localStorage.getItem(SPACE_STORAGE_KEY)
         if (savedPosts) setPosts(JSON.parse(savedPosts))
@@ -398,10 +387,6 @@ export default function ChatPage() {
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [])
-
-  useEffect(() => {
-    if (mounted) saveMemory(memoryItems)
-  }, [memoryItems, mounted])
 
   useEffect(() => {
     if (!mounted) return
@@ -739,17 +724,6 @@ export default function ChatPage() {
     }))
   }
 
-  const addMemoryItem = () => {
-    const trimmed = newMemoryInput.trim()
-    if (!trimmed) return
-    setMemoryItems(prev => [...prev, createMemoryItem(trimmed)])
-    setNewMemoryInput('')
-  }
-
-  const deleteMemoryItem = (id: string) => {
-    setMemoryItems(prev => prev.filter(m => m.id !== id))
-  }
-
   const setConversationPersona = (conversationId: string, personaId: string) => {
     setConversations(prev => prev.map(c =>
       c.id === conversationId ? { ...c, personaId } : c
@@ -945,10 +919,9 @@ export default function ChatPage() {
     }
     setLoading(true)
 
-    const memoryPrompt = buildMemoryPrompt(memoryItems)
     const currentPersonaId = currentConversation?.personaId ?? 'default'
     const personaSystemPrompt = getEffectiveSystemPrompt(currentPersonaId)
-    const fullSystemPrompt = [memoryPrompt, personaSystemPrompt].filter(Boolean).join('\n\n')
+    const fullSystemPrompt = personaSystemPrompt
 
     const thinkingInstruction = thinkingEnabled
       ? thinkingMode === 'long'
@@ -2556,54 +2529,6 @@ return (
           </div>
         )
       })()}
-
-      {/* 记忆库弹窗 */}
-      {showMemory && (
-        <div className="fixed inset-0 flex items-center justify-center z-10" style={{ background: t.overlayBg, backdropFilter: 'blur(4px)' }}>
-          <div className="rounded-2xl p-6 w-full max-w-lg mx-4 flex flex-col" style={{ background: t.settingsBg, backdropFilter: 'blur(16px)', maxHeight: '70vh' }}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium" style={{ color: t.settingsText }}>记忆库</h2>
-              <span className="text-xs" style={{ color: t.settingsSubText }}>{memoryItems.length} 条记忆</span>
-            </div>
-            <p className="text-xs mb-4" style={{ color: t.settingsSubText }}>这里的内容会在每次对话时自动带给 Claude，跨对话生效。</p>
-            <div className="flex gap-2 mb-4">
-              <input
-                className="flex-1 rounded-xl px-3 py-2 text-xs outline-none"
-                style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
-                placeholder="添加一条记忆"
-                value={newMemoryInput}
-                onChange={e => setNewMemoryInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addMemoryItem() }}
-              />
-              <button
-                onClick={addMemoryItem}
-                className="text-xs rounded-xl px-3 py-2"
-                style={{ background: t.saveButton, color: t.saveButtonText }}
-              >
-                添加
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-2">
-              {memoryItems.length === 0 && (
-                <p className="text-xs text-center py-4" style={{ color: t.settingsSubText }}>还没有记忆</p>
-              )}
-              {memoryItems.map(m => (
-                <div
-                  key={m.id}
-                  className="flex items-start justify-between gap-2 px-3 py-2 rounded-xl"
-                  style={{ background: t.settingsInputBg, border: `1px solid ${t.settingsInputBorder}` }}
-                >
-                  <span className="text-xs flex-1" style={{ color: t.settingsText }}>{m.content}</span>
-                  <button onClick={() => deleteMemoryItem(m.id)} className="text-xs shrink-0" style={{ color: t.settingsSubText }}>×</button>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end mt-4">
-              <button onClick={() => setShowMemory(false)} className="text-xs rounded-lg px-4 py-2" style={{ background: t.saveButton, color: t.saveButtonText }}>完成</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {editingPersona && (
         <PersonaSettings
