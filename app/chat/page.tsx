@@ -522,13 +522,17 @@ export default function ChatPage() {
       }
     } catch {}
 
+    // 既没开发者模式也没保存 API 配置时，这个请求必然 400，直接跳过
+    const apiConfigForQuote = getApiConfigForRequest()
+    if (!apiConfigForQuote.devMode && !apiConfigForQuote.apiConfig) return
+
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages: [{ role: 'user', content: '请生成一句简短温暖的中文每日问候或鼓励语（15字以内），直接输出文字，不加引号或任何说明。' }],
         systemPrompt: '你是一个简洁温暖的助手，只输出一句话，不超过15个字。',
-        ...getApiConfigForRequest(),
+        ...apiConfigForQuote,
       }),
     })
       .then(res => streamToString(res))
