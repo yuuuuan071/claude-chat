@@ -110,26 +110,58 @@ ${transcript}`
     return Response.json({ error: '记忆提取失败：模型返回内容不是合法 JSON', raw: text }, { status: 500 })
   }
 
-  if (!Array.isArray(items) || items.length === 0) return Response.json({ inserted: 0 })
+  if (!Array.isArray(items) || items.length === 0) return Response.json({ inserted: 0, skipped_duplicates: 0 })
 
-  const rows = await Promise.all(items.map(async item => {
+  const DUPLICATE_THRESHOLD = 0.92
+
+  const rows: Array<{
+    persona_id: string
+    content: string
+    source_type: string
+    source_conversation_id: string
+    embedding?: number[]
+  }> = []
+  let skippedDuplicates = 0
+
+  for (const item of items) {
     let embedding: number[] | undefined
     try {
       embedding = await getEmbedding(item.content)
     } catch (e) {
       console.warn('persona-memory/extract: embedding failed, leaving null for backfill:', e)
     }
-    return {
+
+    if (embedding) {
+      const { data: matches, error: matchError } = await supabase.rpc('match_persona_memories', {
+        query_embedding: embedding,
+        target_persona_id: personaId,
+        match_count: 1,
+      })
+      if (matchError) {
+        console.warn('persona-memory/extract: dedup check failed, inserting anyway:', matchError.message)
+      } else {
+        const top = matches?.[0]
+        if (top && top.similarity >= DUPLICATE_THRESHOLD) {
+          skippedDuplicates++
+          console.log(`persona-memory/extract: skipped duplicate (similarity ${top.similarity.toFixed(4)}): "${item.content}" ~ existing: "${top.content}"`)
+          continue
+        }
+      }
+    }
+
+    rows.push({
       persona_id: personaId,
       content: item.content,
       source_type: sourceType,
       source_conversation_id: conversationId,
       embedding,
-    }
-  }))
+    })
+  }
+
+  if (rows.length === 0) return Response.json({ inserted: 0, skipped_duplicates: skippedDuplicates })
 
   const { error } = await supabase.from('persona_memories').insert(rows)
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
-  return Response.json({ inserted: items.length })
+  return Response.json({ inserted: rows.length, skipped_duplicates: skippedDuplicates })
 }
