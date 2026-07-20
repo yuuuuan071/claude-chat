@@ -253,6 +253,7 @@ export default function ChatPage() {
   const [themeKey, setThemeKey] = useState('morning')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
+  const [dockPanel, setDockPanel] = useState<'music' | 'diary' | 'library' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [transitioning, setTransitioning] = useState(false)
@@ -281,6 +282,7 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const submenuPortalRef = useRef<HTMLDivElement>(null)
+  const dockRef = useRef<HTMLDivElement>(null)
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -474,6 +476,17 @@ export default function ChatPage() {
         !(submenuPortalRef.current && submenuPortalRef.current.contains(target))
       ) {
         setShowMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [])
+
+  useEffect(() => {
+    const handle = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (dockRef.current && !dockRef.current.contains(target)) {
+        setDockPanel(null)
       }
     }
     document.addEventListener('mousedown', handle)
@@ -1209,12 +1222,240 @@ export default function ChatPage() {
           .input-hint { display: none; }
           .chat-input-area { padding: 0 12px 16px; }
         }
+        /* 图标 dock：只在桌面端常驻显示，移动端维持原有 ☰ 抽屉 + 底部工具菜单 */
+        .dock-strip { display: none; }
+        @media (min-width: 640px) {
+          .dock-strip {
+            display: flex; flex-direction: column; align-items: center;
+            width: 52px; flex-shrink: 0; height: 100%; z-index: 10001;
+          }
+        }
       `}</style>
 
       {themeKey === 'morning' && <RainEffect opacity={0.8} />}
       {themeKey === 'snow' && <SnowEffect opacity={0.9} />}
 
       <div className="relative flex w-full h-full" style={{ zIndex: 1 }}>
+
+        {/* 图标 dock（桌面端常驻，参考 QQ 窄边栏） */}
+        <div
+          ref={dockRef}
+          className="dock-strip"
+          style={{
+            background: t.headerBg,
+            backdropFilter: 'blur(12px)',
+            borderRight: `1px solid ${t.headerBorder}`,
+            paddingTop: '12px',
+            paddingBottom: '12px',
+          }}
+        >
+          <div className="flex flex-col items-center gap-2">
+            {([
+              {
+                key: 'chat' as const,
+                title: '聊天',
+                icon: (
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                ),
+              },
+              {
+                key: 'music' as const,
+                title: '音乐台',
+                icon: (
+                  <>
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </>
+                ),
+              },
+              {
+                key: 'diary' as const,
+                title: '日记',
+                icon: (
+                  <>
+                    <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
+                    <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
+                  </>
+                ),
+              },
+              {
+                key: 'library' as const,
+                title: '图书馆',
+                icon: (
+                  <>
+                    <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+                  </>
+                ),
+              },
+            ]).map(item => {
+              const isActive = item.key === 'chat' ? dockPanel === null : dockPanel === item.key
+              return (
+                <div key={item.key} className="relative">
+                  <button
+                    onClick={() => setDockPanel(item.key === 'chat' ? null : item.key)}
+                    className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
+                    style={{
+                      color: isActive ? t.headerText : t.buttonText,
+                      background: isActive ? t.userBubble : 'transparent',
+                    }}
+                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = t.buttonHover }}
+                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = t.buttonText }}
+                    title={item.title}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      {item.icon}
+                    </svg>
+                  </button>
+
+                  {/* 音乐台面板：复制自侧边栏「⚙ 工具 → 🔊 音效」，移动端沿用原处不动，
+                      这里只服务桌面端 dock；两处控件同源同 state，改一处记得同步改另一处 */}
+                  {item.key === 'music' && dockPanel === 'music' && (
+                    <div
+                      className="absolute rounded-xl overflow-hidden menu-animate"
+                      style={{
+                        left: '100%',
+                        top: 0,
+                        marginLeft: '8px',
+                        minWidth: '240px',
+                        background: t.settingsBg,
+                        backdropFilter: 'blur(16px)',
+                        border: `1px solid ${t.headerBorder}`,
+                        boxShadow: t.inputShadow,
+                        zIndex: 10000,
+                      }}
+                    >
+                      <div className="px-4 py-2.5 text-xs font-semibold" style={{ color: t.settingsSubText, borderBottom: `1px solid ${t.headerBorder}` }}>
+                        🎵 音乐台
+                      </div>
+                      <button
+                        onClick={() => setTtsAutoPlay(prev => !prev)}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                        style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                      >
+                        自动朗读：{ttsAutoPlay ? '开启 ✓' : '关闭'}
+                      </button>
+                      <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+                        <span className="text-xs shrink-0" style={{ color: t.settingsSubText }}>环境音</span>
+                        {[
+                          { key: 'rain', label: '雨' },
+                          { key: 'forest', label: '林' },
+                          { key: 'water', label: '水' },
+                        ].map(({ key, label }) => (
+                          <button
+                            key={key}
+                            onClick={() => setAmbientSound(prev => prev === key ? null : key)}
+                            className="rounded-md px-2 py-0.5 text-xs transition-all"
+                            style={{
+                              color: ambientSound === key ? t.headerText : t.settingsSubText,
+                              background: ambientSound === key ? t.userBubble : 'transparent',
+                              opacity: ambientSound === key ? 1 : 0.6,
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs" style={{ color: t.settingsSubText }}>语音音量</span>
+                          <span className="text-xs" style={{ color: t.settingsText }}>{Math.round(ttsVolume * 100)}%</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.05" value={ttsVolume}
+                          onChange={e => setTtsVolume(parseFloat(e.target.value))}
+                          style={{ width: '100%', accentColor: t.sendButton }} />
+                      </div>
+                      <div className="px-4 py-2.5" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs" style={{ color: t.settingsSubText }}>环境音量</span>
+                          <span className="text-xs" style={{ color: t.settingsText }}>{Math.round(ambientVolume * 100)}%</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.05" value={ambientVolume}
+                          onChange={e => setAmbientVolume(parseFloat(e.target.value))}
+                          style={{ width: '100%', accentColor: t.sendButton }} />
+                      </div>
+                      <div className="px-4 py-2.5">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs" style={{ color: t.settingsSubText }}>语速</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs" style={{ color: t.settingsText }}>{ttsSpeed.toFixed(1)}x</span>
+                            <button
+                              onClick={async () => {
+                                const personaId = currentConversation?.personaId ?? 'default'
+                                const voice = getPersonaById(personaId)?.voice_id ?? 'male-qn-qingse'
+                                const sample = '今天天气真不错，适合出门走走。'
+                                try {
+                                  const res = await fetch('/api/tts', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ text: sample, voice, speed: ttsSpeed * (intimateMode ? 0.8 : 1.0) }),
+                                  })
+                                  if (!res.ok) return
+                                  const blob = await res.blob()
+                                  const url = URL.createObjectURL(blob)
+                                  const audio = new Audio(url)
+                                  audio.volume = ttsVolume
+                                  audio.onended = () => URL.revokeObjectURL(url)
+                                  safePlayAudio(audio)
+                                } catch {}
+                              }}
+                              className="text-xs px-1.5 py-0.5 rounded-md transition-opacity hover:opacity-70"
+                              style={{ color: t.settingsSubText, border: `1px solid ${t.headerBorder}` }}
+                            >
+                              试听
+                            </button>
+                          </div>
+                        </div>
+                        <input type="range" min="0.5" max="1.5" step="0.1" value={ttsSpeed}
+                          onChange={e => setTtsSpeed(parseFloat(e.target.value))}
+                          style={{ width: '100%', accentColor: t.sendButton }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 日记 / 图书馆：占位面板 */}
+                  {(item.key === 'diary' || item.key === 'library') && dockPanel === item.key && (
+                    <div
+                      className="absolute rounded-xl overflow-hidden menu-animate"
+                      style={{
+                        left: '100%',
+                        top: 0,
+                        marginLeft: '8px',
+                        minWidth: '160px',
+                        background: t.settingsBg,
+                        backdropFilter: 'blur(16px)',
+                        border: `1px solid ${t.headerBorder}`,
+                        boxShadow: t.inputShadow,
+                        zIndex: 10000,
+                      }}
+                    >
+                      <div className="px-4 py-3 text-xs" style={{ color: t.settingsSubText }}>
+                        {item.title} · 开发中
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex-1" />
+
+          <button
+            onClick={handleGoHome}
+            className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
+            style={{ color: t.buttonText }}
+            onMouseEnter={e => (e.currentTarget.style.color = t.buttonHover)}
+            onMouseLeave={e => (e.currentTarget.style.color = t.buttonText)}
+            title="返回首页"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+          </button>
+        </div>
 
         {/* 移动端遮罩 */}
         {isMobile && sidebarOpen && (
@@ -1490,7 +1731,9 @@ export default function ChatPage() {
                     })()}
                   </div>
 
-                  {/* 🔊 音效 */}
+                  {/* 🔊 音效（仅移动端；桌面端已迁到左侧 dock「🎵 音乐台」面板，
+                      两处控件同源同 state，改这里记得同步改那份，避免两边行为不一致） */}
+                  {isMobile && (
                   <div
                     className="relative"
                     style={{ borderBottom: `1px solid ${t.headerBorder}` }}
@@ -1609,6 +1852,7 @@ export default function ChatPage() {
                       return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
                     })()}
                   </div>
+                  )}
 
                   {/* ⚙️ 高级 */}
                   <div
