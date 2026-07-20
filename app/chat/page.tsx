@@ -253,7 +253,7 @@ export default function ChatPage() {
   const [themeKey, setThemeKey] = useState('morning')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
-  const [dockPanel, setDockPanel] = useState<'music' | 'diary' | 'library' | null>(null)
+  const [dockPanel, setDockPanel] = useState<'music' | 'diary' | 'library' | 'tools' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [transitioning, setTransitioning] = useState(false)
@@ -1249,6 +1249,21 @@ export default function ChatPage() {
             paddingBottom: '12px',
           }}
         >
+          {/* 返回首页：置顶第一位 */}
+          <button
+            onClick={handleGoHome}
+            className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors mb-2"
+            style={{ color: t.buttonText }}
+            onMouseEnter={e => (e.currentTarget.style.color = t.buttonHover)}
+            onMouseLeave={e => (e.currentTarget.style.color = t.buttonText)}
+            title="返回首页"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+          </button>
+
           <div className="flex flex-col items-center gap-2">
             {([
               {
@@ -1256,6 +1271,17 @@ export default function ChatPage() {
                 title: '聊天',
                 icon: (
                   <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                ),
+              },
+              {
+                key: 'space' as const,
+                title: '空间',
+                icon: (
+                  <>
+                    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                    <polyline points="2 17 12 22 22 17" />
+                    <polyline points="2 12 12 17 22 12" />
+                  </>
                 ),
               },
               {
@@ -1290,11 +1316,22 @@ export default function ChatPage() {
                 ),
               },
             ]).map(item => {
-              const isActive = item.key === 'chat' ? dockPanel === null : dockPanel === item.key
+              // 主视图类图标（聊天/空间）互斥且清浮层；浮层类图标（音乐台/日记/图书馆）只管自身开合
+              const isActive = item.key === 'chat' ? !viewingSpace
+                : item.key === 'space' ? viewingSpace
+                : dockPanel === item.key
               return (
                 <div key={item.key} className="relative">
                   <button
-                    onClick={() => setDockPanel(item.key === 'chat' ? null : item.key)}
+                    onClick={() => {
+                      if (item.key === 'chat') {
+                        setDockPanel(null); setViewingSpace(false); setViewingPersona(null)
+                      } else if (item.key === 'space') {
+                        setViewingSpace(true); setViewingPersona(null); setDockPanel(null)
+                      } else {
+                        setDockPanel(item.key)
+                      }
+                    }}
                     className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
                     style={{
                       color: isActive ? t.headerText : t.buttonText,
@@ -1442,19 +1479,225 @@ export default function ChatPage() {
 
           <div className="flex-1" />
 
-          <button
-            onClick={handleGoHome}
-            className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
-            style={{ color: t.buttonText }}
-            onMouseEnter={e => (e.currentTarget.style.color = t.buttonHover)}
-            onMouseLeave={e => (e.currentTarget.style.color = t.buttonText)}
-            title="返回首页"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-              <polyline points="9 22 9 12 15 12 15 22"/>
-            </svg>
-          </button>
+          {/* ⚙ 工具：复制自侧边栏「⚙ 工具」（外观/对话/高级三组），移动端沿用原处不动，
+              这里只服务桌面端 dock；两处控件同源同 state（含 hoveredGroup），改一处记得同步改另一处 */}
+          <div className="relative">
+            <button
+              onClick={() => setDockPanel('tools')}
+              className="w-9 h-9 flex items-center justify-center rounded-lg transition-colors"
+              style={{
+                color: dockPanel === 'tools' ? t.headerText : t.buttonText,
+                background: dockPanel === 'tools' ? t.userBubble : 'transparent',
+              }}
+              onMouseEnter={e => { if (dockPanel !== 'tools') e.currentTarget.style.color = t.buttonHover }}
+              onMouseLeave={e => { if (dockPanel !== 'tools') e.currentTarget.style.color = t.buttonText }}
+              title="工具"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+              </svg>
+            </button>
+            {dockPanel === 'tools' && (
+              <div
+                className="absolute rounded-xl overflow-hidden menu-animate"
+                style={{
+                  left: '100%',
+                  bottom: 0,
+                  marginLeft: '8px',
+                  minWidth: '200px',
+                  background: t.settingsBg,
+                  backdropFilter: 'blur(16px)',
+                  border: `1px solid ${t.headerBorder}`,
+                  boxShadow: t.inputShadow,
+                  zIndex: 10000,
+                }}
+              >
+                {/* 🎨 外观 */}
+                <div
+                  className="relative"
+                  style={{ borderBottom: `1px solid ${t.headerBorder}` }}
+                  onMouseEnter={() => { if (!isMobile) setHoveredGroup('appearance') }}
+                  onMouseLeave={() => { if (!isMobile) setHoveredGroup(null) }}
+                >
+                  <button
+                    onClick={() => { if (isMobile) setHoveredGroup(prev => prev === 'appearance' ? null : 'appearance') }}
+                    className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70 rounded-t-xl"
+                    style={{ color: t.settingsSubText }}
+                  >
+                    <span>🎨 外观</span>
+                    <span style={{ fontSize: '10px' }}>▸</span>
+                  </button>
+                  {hoveredGroup === 'appearance' && (() => {
+                    const menu = (
+                    <div
+                      ref={submenuPortalRef}
+                      className="absolute rounded-xl overflow-hidden"
+                      style={{
+                        ...(isMobile
+                          ? { position: 'fixed', left: 12, top: 'auto', bottom: 72, maxWidth: 'calc(82vw - 24px)', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', zIndex: 10000 }
+                          : { left: '100%', bottom: 0 }),
+                        minWidth: '160px',
+                        background: t.settingsBg,
+                        backdropFilter: 'blur(16px)',
+                        border: `1px solid ${t.headerBorder}`,
+                        boxShadow: t.inputShadow,
+                      }}
+                    >
+                      {isMobile && <MobileGroupTabs theme={t} active={hoveredGroup} onSelect={setHoveredGroup} />}
+                      <button
+                        onClick={cycleTheme}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                        style={{ color: t.settingsText }}
+                      >
+                        主题：{t.name}
+                      </button>
+                    </div>
+                    )
+                    return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
+                  })()}
+                </div>
+
+                {/* 💬 对话 */}
+                <div
+                  className="relative"
+                  style={{ borderBottom: `1px solid ${t.headerBorder}` }}
+                  onMouseEnter={() => { if (!isMobile) setHoveredGroup('chat') }}
+                  onMouseLeave={() => { if (!isMobile) setHoveredGroup(null) }}
+                >
+                  <button
+                    onClick={() => { if (isMobile) setHoveredGroup(prev => prev === 'chat' ? null : 'chat') }}
+                    className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsSubText }}
+                  >
+                    <span>💬 对话</span>
+                    <span style={{ fontSize: '10px' }}>▸</span>
+                  </button>
+                  {hoveredGroup === 'chat' && (() => {
+                    const menu = (
+                    <div
+                      ref={submenuPortalRef}
+                      className="absolute rounded-xl overflow-hidden"
+                      style={{
+                        ...(isMobile
+                          ? { position: 'fixed', left: 12, top: 'auto', bottom: 72, maxWidth: 'calc(82vw - 24px)', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', zIndex: 10000 }
+                          : { left: '100%', bottom: 0 }),
+                        minWidth: '160px',
+                        background: t.settingsBg,
+                        backdropFilter: 'blur(16px)',
+                        border: `1px solid ${t.headerBorder}`,
+                        boxShadow: t.inputShadow,
+                      }}
+                    >
+                      {isMobile && <MobileGroupTabs theme={t} active={hoveredGroup} onSelect={setHoveredGroup} />}
+                      <button
+                        onClick={() => openSettings()}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                        style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                      >
+                        System Prompt 设置
+                      </button>
+                      <button
+                        onClick={() => {
+                          const next = !thinkingEnabled
+                          setThinkingEnabled(next)
+                          localStorage.setItem('thinking-enabled', next ? 'true' : 'false')
+                          setShowMenu(false)
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                        style={{ color: t.settingsText, borderBottom: thinkingEnabled ? `1px solid ${t.headerBorder}` : undefined }}
+                      >
+                        心声模式：{thinkingEnabled ? '开启 ✓' : '关闭'}
+                      </button>
+                      {thinkingEnabled && (
+                        <button
+                          onClick={() => {
+                            const next = thinkingMode === 'short' ? 'long' : 'short'
+                            setThinkingMode(next)
+                            localStorage.setItem('thinking-mode', next)
+                            setShowMenu(false)
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText }}
+                        >
+                          心声深度：{thinkingMode === 'short' ? '简短' : '详细'}
+                        </button>
+                      )}
+                    </div>
+                    )
+                    return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
+                  })()}
+                </div>
+
+                {/* ⚙️ 高级 */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => { if (!isMobile) setHoveredGroup('advanced') }}
+                  onMouseLeave={() => { if (!isMobile) setHoveredGroup(null) }}
+                >
+                  <button
+                    onClick={() => { if (isMobile) setHoveredGroup(prev => prev === 'advanced' ? null : 'advanced') }}
+                    className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70 rounded-b-xl"
+                    style={{ color: t.settingsSubText }}
+                  >
+                    <span>⚙️ 高级</span>
+                    <span style={{ fontSize: '10px' }}>▸</span>
+                  </button>
+                  {hoveredGroup === 'advanced' && (() => {
+                    const menu = (
+                    <div
+                      ref={submenuPortalRef}
+                      className="absolute rounded-xl overflow-hidden"
+                      style={{
+                        ...(isMobile
+                          ? { position: 'fixed', left: 12, top: 'auto', bottom: 72, maxWidth: 'calc(82vw - 24px)', maxHeight: 'calc(100vh - 140px)', overflowY: 'auto', zIndex: 10000 }
+                          : { left: '100%', bottom: 0 }),
+                        minWidth: '160px',
+                        background: t.settingsBg,
+                        backdropFilter: 'blur(16px)',
+                        border: `1px solid ${t.headerBorder}`,
+                        boxShadow: t.inputShadow,
+                      }}
+                    >
+                      {isMobile && <MobileGroupTabs theme={t} active={hoveredGroup} onSelect={setHoveredGroup} />}
+                      <button
+                        onClick={() => { setApiDraft({ ...DEFAULT_API_DRAFT }); setApiTestStatus('idle'); setModelList([]); setShowApiSettings(true); setShowMenu(false) }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                        style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                      >
+                        API 设置{activeConfigName ? ` · ${activeConfigName}` : ''}
+                      </button>
+                      <button
+                        onClick={() => { router.push('/memories'); setShowMenu(false) }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                        style={{ color: t.settingsText, borderBottom: `1px solid ${t.headerBorder}` }}
+                      >
+                        记忆管理
+                      </button>
+                      <button
+                        onClick={() => { setDevPasswordMode('verify'); setDevPasswordInput(''); setDevPasswordError(''); setShowDevPasswordDialog(true) }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                        style={{ color: t.settingsText, borderBottom: devMode ? `1px solid ${t.headerBorder}` : undefined }}
+                      >
+                        开发者模式：{devMode ? '开启 ✓' : '关闭'}
+                      </button>
+                      {devMode && (
+                        <button
+                          onClick={() => { setDevPasswordMode('change'); setDevPasswordInput(''); setDevPasswordError(''); setShowDevPasswordDialog(true); setShowMenu(false) }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsText }}
+                        >
+                          修改密码
+                        </button>
+                      )}
+                    </div>
+                    )
+                    return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* 移动端遮罩 */}
@@ -1496,7 +1739,8 @@ export default function ChatPage() {
               </div>
               {/* 分割线 */}
               <div style={{ borderTop: `1px solid ${t.headerBorder}`, margin: '6px 0' }} />
-              {/* 空间入口 */}
+              {/* 空间入口（仅移动端；桌面端已迁到左侧 dock「空间」图标） */}
+              {isMobile && (
               <button
                 className="w-full flex items-center justify-between px-1 py-1 rounded-lg transition-opacity hover:opacity-70"
                 onClick={() => { setViewingSpace(true); setViewingPersona(null); closeSidebarOnMobile() }}
@@ -1505,6 +1749,7 @@ export default function ChatPage() {
                 <span className="text-base font-semibold" style={{ color: viewingSpace ? t.headerText : t.settingsSubText }}>空间</span>
                 <span className="text-sm font-semibold" style={{ color: t.settingsSubText }}>›</span>
               </button>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto py-2">
@@ -1598,6 +1843,9 @@ export default function ChatPage() {
               })}
             </div>
 
+            {/* ⚙ 工具（仅移动端；桌面端已迁到左侧 dock「⚙ 工具」图标，
+                外观/对话/高级三组同源同 state 在两处各有一份，改一处记得同步改另一处） */}
+            {isMobile && (
             <div
               className="px-3 py-3 relative"
               style={{ borderTop: `1px solid ${t.headerBorder}` }}
@@ -1936,6 +2184,7 @@ export default function ChatPage() {
                 <span>工具</span>
               </button>
             </div>
+            )}
           </div>
 
         {/* 主区域 */}
@@ -1982,19 +2231,6 @@ export default function ChatPage() {
               title="缠绵模式"
             >
               <span style={{ fontSize: '15px', lineHeight: 1 }}>{intimateMode ? '🌙' : '☽'}</span>
-            </button>
-            <button
-              onClick={handleGoHome}
-              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors"
-              style={{ color: t.buttonText }}
-              onMouseEnter={e => (e.currentTarget.style.color = t.buttonHover)}
-              onMouseLeave={e => (e.currentTarget.style.color = t.buttonText)}
-              title="返回首页"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-                <polyline points="9 22 9 12 15 12 15 22"/>
-              </svg>
             </button>
           </div>
 
