@@ -1,5 +1,6 @@
 import { getSupabase } from '@/lib/supabase'
 import { logApiUsage, resolveMemoryApiKey } from '@/lib/apiUsage'
+import { getEmbedding } from '@/lib/embeddings'
 
 const MODEL = 'deepseek/deepseek-chat'
 
@@ -111,14 +112,23 @@ ${transcript}`
 
   if (!Array.isArray(items) || items.length === 0) return Response.json({ inserted: 0 })
 
-  const { error } = await supabase.from('persona_memories').insert(
-    items.map(item => ({
+  const rows = await Promise.all(items.map(async item => {
+    let embedding: number[] | undefined
+    try {
+      embedding = await getEmbedding(item.content)
+    } catch (e) {
+      console.warn('persona-memory/extract: embedding failed, leaving null for backfill:', e)
+    }
+    return {
       persona_id: personaId,
       content: item.content,
       source_type: sourceType,
       source_conversation_id: conversationId,
-    }))
-  )
+      embedding,
+    }
+  }))
+
+  const { error } = await supabase.from('persona_memories').insert(rows)
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
   return Response.json({ inserted: items.length })
