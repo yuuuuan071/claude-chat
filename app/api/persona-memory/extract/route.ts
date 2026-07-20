@@ -1,6 +1,6 @@
 import { getSupabase } from '@/lib/supabase'
 import { logApiUsage, resolveMemoryApiKey } from '@/lib/apiUsage'
-import { getEmbedding } from '@/lib/embeddings'
+import { getEmbedding, cosine } from '@/lib/embeddings'
 
 const MODEL = 'deepseek/deepseek-chat'
 
@@ -60,6 +60,8 @@ export async function POST(req: Request) {
 - "慧妍" = 慧妍，始终用名字称呼，禁止用"她""你""用户"指代
 - 其他人物一律用具体名字或"慧妍的XX"（如"慧妍的妹妹"），禁止用代词指代
 - 每条记忆单独可读：不依赖上下文也能明确知道每个人称指的是谁
+
+同一话题/同一件事只输出一条记忆，把相关细节合并进这一条，不要拆成多条相似的记忆分别输出。
 
 拿不准是否值得记时，宁可不记，允许返回空数组。
 
@@ -146,6 +148,13 @@ ${transcript}`
           console.log(`persona-memory/extract: skipped duplicate (similarity ${top.similarity.toFixed(4)}): "${item.content}" ~ existing: "${top.content}"`)
           continue
         }
+      }
+
+      const batchMatch = rows.find(row => row.embedding && cosine(embedding!, row.embedding) >= DUPLICATE_THRESHOLD)
+      if (batchMatch) {
+        skippedDuplicates++
+        console.log(`persona-memory/extract: skipped duplicate within batch (similarity ${cosine(embedding, batchMatch.embedding!).toFixed(4)}): "${item.content}" ~ pending: "${batchMatch.content}"`)
+        continue
       }
     }
 
