@@ -1504,7 +1504,7 @@ export default function ChatPage() {
             </button>
             {dockPanel === 'tools' && (
               <div
-                className="absolute rounded-xl overflow-hidden menu-animate"
+                className="absolute rounded-xl menu-animate"
                 style={{
                   left: '100%',
                   bottom: 0,
