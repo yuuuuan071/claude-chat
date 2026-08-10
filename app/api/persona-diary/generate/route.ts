@@ -35,6 +35,15 @@ export async function POST(req: Request) {
     .eq('resolution', 'semantic')
     .order('created_at', { ascending: true })
 
+  // 查最近 5 条 impression（不限当天）作为情绪背景
+  const { data: recentImpressions } = await supabase
+    .from('persona_memories')
+    .select('content, created_at')
+    .eq('persona_id', personaId)
+    .eq('resolution', 'impression')
+    .order('created_at', { ascending: false })
+    .limit(5)
+
   if ((!dayMemories || dayMemories.length === 0) && (!semanticRows || semanticRows.length === 0)) {
     return Response.json({ skipped: true, reason: 'no memories' })
   }
@@ -42,6 +51,9 @@ export async function POST(req: Request) {
   const parts: string[] = []
   if (semanticRows?.length) {
     parts.push('【角色对慧妍的了解】\n' + semanticRows.map((r: { content: string }) => '- ' + r.content).join('\n'))
+  }
+  if (recentImpressions?.length) {
+    parts.push('【近期氛围】\n' + recentImpressions.map((r: { content: string; created_at: string }) => `${r.created_at?.slice(0, 10)}：${r.content}`).join('\n'))
   }
   if (dayMemories?.length) {
     parts.push('【当天记忆片段】\n' + dayMemories.map((m: { content: string }) => m.content).join('\n'))
@@ -72,6 +84,7 @@ export async function POST(req: Request) {
 - 保留记忆片段里的具体细节和原话引用，忠实反映原始内容，不编造新事实、动机或场景
 - 语气要贴合角色平时说话的调性，但不要写成过度抒情、堆砌辞藻的"日记体范文"，就是把当天经历自然地记下来
 - 篇幅要跟素材量匹配：记忆片段少就写短一点，不要为了凑字数硬加内容或反复重复同一件事
+- 结合【近期氛围】里的情绪走向，让日记有连续感，但不要直接复述近期氛围的内容
 - 只输出日记正文，不要加标题、日期、"亲爱的日记"这类开头，也不要任何解释或说明
 - 不要用markdown包裹，直接输出纯文本
 
