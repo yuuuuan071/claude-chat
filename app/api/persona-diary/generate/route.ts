@@ -15,22 +15,39 @@ export async function POST(req: Request) {
   const dayStart = `${date}T00:00:00+08:00`
   const dayEnd = `${date}T23:59:59.999+08:00`
 
-  const { data: memories, error: memoriesError } = await supabase
+  // 查当天的 detail + impression 条目作为日记素材
+  const { data: dayMemories, error: dayError } = await supabase
     .from('persona_memories')
-    .select('content, created_at')
+    .select('content, resolution, created_at')
     .eq('persona_id', personaId)
-    .eq('is_active', true)
+    .in('resolution', ['detail', 'impression'])
     .gte('created_at', dayStart)
     .lte('created_at', dayEnd)
     .order('created_at', { ascending: true })
 
-  if (memoriesError) return Response.json({ error: memoriesError.message }, { status: 500 })
+  if (dayError) return Response.json({ error: dayError.message }, { status: 500 })
 
-  if (!memories || memories.length === 0) {
+  // 查 semantic 身份条目作为角色背景（不限日期）
+  const { data: semanticRows } = await supabase
+    .from('persona_memories')
+    .select('content')
+    .eq('persona_id', personaId)
+    .eq('resolution', 'semantic')
+    .order('created_at', { ascending: true })
+
+  if ((!dayMemories || dayMemories.length === 0) && (!semanticRows || semanticRows.length === 0)) {
     return Response.json({ skipped: true, reason: 'no memories' })
   }
 
-  const memoryText = memories.map(m => m.content).join('\n')
+  const parts: string[] = []
+  if (semanticRows?.length) {
+    parts.push('【角色对慧妍的了解】\n' + semanticRows.map((r: { content: string }) => '- ' + r.content).join('\n'))
+  }
+  if (dayMemories?.length) {
+    parts.push('【当天记忆片段】\n' + dayMemories.map((m: { content: string }) => m.content).join('\n'))
+  }
+  const memoryText = parts.join('\n\n')
+  const memories = dayMemories ?? []
 
   const apiKey = resolveMemoryApiKey()
   const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
