@@ -11,6 +11,10 @@
     {
       "path": "/api/persona-memory/rollup",
       "schedule": "0 5 * * 0"
+    },
+    {
+      "path": "/api/persona-letters/generate",
+      "schedule": "0 10 * * *"
     }
   ]
 }
