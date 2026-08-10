@@ -35,6 +35,8 @@ export default function MemoriesPage() {
   const [editingAnchorId, setEditingAnchorId] = useState<string | null>(null)
   const [anchorDraft, setAnchorDraft] = useState('')
   const [showAnchors, setShowAnchors] = useState(false)
+  const [showReviews, setShowReviews] = useState(false)
+  const [reviews, setReviews] = useState<Array<{ persona_id: string; review_content: string; created_at: string }>>([])
 
   const t = themes[themeKey]
 
@@ -76,6 +78,20 @@ export default function MemoriesPage() {
         })
       )
       setStyleAnchors(Object.fromEntries(anchorEntries))
+
+      const reviewResults: Array<{ persona_id: string; review_content: string; created_at: string }> = []
+      await Promise.all(personaList.map(async (p) => {
+        try {
+          const res = await fetch(`/api/persona-self-review?personaId=${p.id}`)
+          if (res.ok) {
+            const data = await res.json()
+            if (data.review) {
+              reviewResults.push({ persona_id: p.id, review_content: data.review, created_at: '' })
+            }
+          }
+        } catch {}
+      }))
+      setReviews(reviewResults)
     } catch {}
     setLoading(false)
   }
@@ -350,6 +366,40 @@ export default function MemoriesPage() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* 自省记录 */}
+        <div className="rounded-xl" style={{ border: `1px solid ${t.settingsInputBorder}` }}>
+          <button
+            onClick={() => setShowReviews(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70"
+            style={{ color: t.settingsText }}
+          >
+            <span>🪞 自省记录</span>
+            <span style={{ fontSize: '10px' }}>{showReviews ? '▾' : '▸'}</span>
+          </button>
+          {showReviews && (
+            <div className="px-4 pb-3 space-y-3">
+              <p className="text-xs" style={{ color: t.settingsSubText }}>
+                角色对自己回复的反思，会在下次对话中作为参考注入。
+              </p>
+              {reviews.length === 0 ? (
+                <p className="text-xs" style={{ color: t.settingsSubText, opacity: 0.5 }}>暂无自省记录</p>
+              ) : (
+                reviews.map((r, i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: personaColor(r.persona_id) }} />
+                      <span className="text-xs font-medium" style={{ color: t.settingsText }}>{personaName(r.persona_id)}</span>
+                    </div>
+                    <p className="text-xs leading-relaxed pl-4" style={{ color: t.settingsSubText }}>
+                      {r.review_content}
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>
