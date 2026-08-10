@@ -31,6 +31,10 @@ export default function MemoriesPage() {
   const [resummarizingIds, setResummarizingIds] = useState<Set<string>>(new Set())
   const [showBulkConfirm, setShowBulkConfirm] = useState(false)
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [styleAnchors, setStyleAnchors] = useState<Record<string, string>>({})
+  const [editingAnchorId, setEditingAnchorId] = useState<string | null>(null)
+  const [anchorDraft, setAnchorDraft] = useState('')
+  const [showAnchors, setShowAnchors] = useState(false)
 
   const t = themes[themeKey]
 
@@ -56,7 +60,22 @@ export default function MemoriesPage() {
         const dbPersonas: Persona[] = await personaRes.json()
         dbPersonas.forEach(p => merged.set(p.id, adaptPersona(p)))
       }
-      setPersonas(Array.from(merged.values()))
+      const personaList = Array.from(merged.values())
+      setPersonas(personaList)
+
+      const anchorEntries = await Promise.all(
+        personaList.map(async p => {
+          try {
+            const res = await fetch(`/api/persona-style-anchor?personaId=${p.id}`)
+            if (res.ok) {
+              const data = await res.json()
+              return [p.id, data.content ?? ''] as const
+            }
+          } catch {}
+          return [p.id, ''] as const
+        })
+      )
+      setStyleAnchors(Object.fromEntries(anchorEntries))
     } catch {}
     setLoading(false)
   }
@@ -248,6 +267,91 @@ export default function MemoriesPage() {
           >
             {sortOrder === 'desc' ? '时间倒序 ↓' : '时间正序 ↑'}
           </button>
+        </div>
+
+        {/* 风格锚定 */}
+        <div className="rounded-xl" style={{ border: `1px solid ${t.settingsInputBorder}` }}>
+          <button
+            onClick={() => setShowAnchors(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-opacity hover:opacity-70"
+            style={{ color: t.settingsText }}
+          >
+            <span>🎙 风格锚定</span>
+            <span style={{ fontSize: '10px' }}>{showAnchors ? '▾' : '▸'}</span>
+          </button>
+          {showAnchors && (
+            <div className="px-4 pb-3 space-y-3">
+              <p className="text-xs" style={{ color: t.settingsSubText }}>
+                为每个角色选一段最能代表其说话风格的回复，作为语感参照。
+              </p>
+              {personas.map(p => (
+                <div key={p.id} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color ?? '#8B9BBA' }} />
+                    <span className="text-xs font-medium" style={{ color: t.settingsText }}>{p.name}</span>
+                    {editingAnchorId !== p.id && (
+                      <button
+                        onClick={() => { setEditingAnchorId(p.id); setAnchorDraft(styleAnchors[p.id] ?? '') }}
+                        className="text-xs transition-opacity hover:opacity-70 ml-auto"
+                        style={{ color: t.settingsSubText }}
+                      >
+                        {styleAnchors[p.id] ? '编辑' : '添加'}
+                      </button>
+                    )}
+                  </div>
+                  {editingAnchorId === p.id ? (
+                    <div className="space-y-2">
+                      <textarea
+                        className="w-full rounded-lg px-3 py-2 text-xs outline-none resize-none leading-relaxed"
+                        style={{ ...inputStyle, minHeight: '80px' }}
+                        value={anchorDraft}
+                        onChange={e => setAnchorDraft(e.target.value)}
+                        placeholder="粘贴一段这个角色说得最好的回复…"
+                        autoFocus
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={async () => {
+                            const content = anchorDraft.trim()
+                            if (!content) return
+                            try {
+                              const res = await fetch('/api/persona-style-anchor', {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ personaId: p.id, content }),
+                              })
+                              if (res.ok) {
+                                setStyleAnchors(prev => ({ ...prev, [p.id]: content }))
+                                setEditingAnchorId(null)
+                              }
+                            } catch {}
+                          }}
+                          disabled={!anchorDraft.trim()}
+                          className="text-xs px-3 py-1 rounded-lg transition-opacity hover:opacity-70 disabled:opacity-40"
+                          style={{ background: t.userBubble, color: t.headerText }}
+                        >
+                          保存
+                        </button>
+                        <button
+                          onClick={() => setEditingAnchorId(null)}
+                          className="text-xs px-3 py-1 rounded-lg transition-opacity hover:opacity-70"
+                          style={{ color: t.settingsSubText }}
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : styleAnchors[p.id] ? (
+                    <p className="text-xs leading-relaxed pl-4" style={{ color: t.settingsSubText }}>
+                      {styleAnchors[p.id].length > 150 ? styleAnchors[p.id].slice(0, 150) + '…' : styleAnchors[p.id]}
+                    </p>
+                  ) : (
+                    <p className="text-xs pl-4" style={{ color: t.settingsSubText, opacity: 0.5 }}>未设置</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* 选择 / 批量操作栏 */}
