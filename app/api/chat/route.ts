@@ -41,12 +41,23 @@ export async function POST(req: Request) {
   if (personaId) {
     const supabase = getSupabase()
     try {
-      const { data } = await supabase
-        .from('persona_summaries')
-        .select('summary')
+      const { data: semanticRows } = await supabase
+        .from('persona_memories')
+        .select('content')
         .eq('persona_id', personaId)
-        .maybeSingle()
-      if (data?.summary) longTermMemory = data.summary
+        .eq('resolution', 'semantic')
+        .order('created_at', { ascending: true })
+      if (semanticRows?.length) {
+        longTermMemory = semanticRows.map((r: { content: string }) => '- ' + r.content).join('\n')
+      } else {
+        // fallback: 没有 semantic 条目时仍用 persona_summaries
+        const { data: summaryData } = await supabase
+          .from('persona_summaries')
+          .select('summary')
+          .eq('persona_id', personaId)
+          .maybeSingle()
+        if (summaryData?.summary) longTermMemory = summaryData.summary
+      }
     } catch {}
     try {
       const { data: anchorData } = await supabase
