@@ -8,7 +8,7 @@ export async function GET(req: Request) {
   if (personaId) {
     const { data: memories, error: memoriesError } = await supabase
       .from('persona_memories')
-      .select('id, content, source_type, created_at')
+      .select('id, content, source_type, resolution, created_at')
       .eq('persona_id', personaId)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   // 不传 personaId：跨角色全量列表，附带角色名称，供 /memories 管理页使用
   const { data: memories, error: memoriesError } = await supabase
     .from('persona_memories')
-    .select('id, persona_id, content, source_type, created_at')
+    .select('id, persona_id, content, source_type, resolution, created_at')
     .eq('is_active', true)
     .order('created_at', { ascending: false })
 

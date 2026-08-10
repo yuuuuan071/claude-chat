@@ -10,6 +10,7 @@ type MemoryRow = {
   persona_name: string
   content: string
   source_type: string
+  resolution: string
   created_at: string
 }
 
@@ -20,6 +21,7 @@ export default function MemoriesPage() {
   const [memories, setMemories] = useState<MemoryRow[]>([])
   const [personas, setPersonas] = useState<Persona[]>([])
   const [personaFilter, setPersonaFilter] = useState('all')
+  const [resolutionFilter, setResolutionFilter] = useState('active')
   const [search, setSearch] = useState('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -71,6 +73,8 @@ export default function MemoriesPage() {
 
   const filtered = memories.filter(m =>
     (personaFilter === 'all' || m.persona_id === personaFilter) &&
+    (resolutionFilter === 'all' ||
+     (resolutionFilter === 'active' ? ['semantic', 'impression', 'detail'].includes(m.resolution) : m.resolution === resolutionFilter)) &&
     (!search.trim() || m.content.toLowerCase().includes(search.trim().toLowerCase()))
   )
   const sorted = [...filtered].sort((a, b) => {
@@ -169,6 +173,20 @@ export default function MemoriesPage() {
     setResummarizingIds(prev => { const next = new Set(prev); next.delete(personaId); return next })
   }
 
+  const updateResolution = async (id: string, resolution: string, personaId: string) => {
+    try {
+      const res = await fetch('/api/persona-memory/update', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, resolution }),
+      })
+      if (res.ok) {
+        setMemories(prev => prev.map(m => m.id === id ? { ...m, resolution } : m))
+        setDirtyPersonaIds(prev => new Set(prev).add(personaId))
+      }
+    } catch {}
+  }
+
   const inputStyle = { background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }
 
   return (
@@ -202,6 +220,19 @@ export default function MemoriesPage() {
             {personas.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
+          </select>
+          <select
+            value={resolutionFilter}
+            onChange={e => setResolutionFilter(e.target.value)}
+            className="rounded-xl px-3 py-2 text-xs outline-none cursor-pointer"
+            style={inputStyle}
+          >
+            <option value="active">活跃记忆</option>
+            <option value="semantic">身份锚点</option>
+            <option value="impression">印象</option>
+            <option value="detail">细节</option>
+            <option value="archived">已归档</option>
+            <option value="all">全部</option>
           </select>
           <input
             value={search}
@@ -324,8 +355,26 @@ export default function MemoriesPage() {
                         </span>
                         <span className="text-xs" style={{ color: t.settingsSubText }}>{formatDate(m.created_at)}</span>
                         <span className="text-xs" style={{ color: t.settingsSubText }}>· {m.source_type === 'manual_import' ? '手动' : '自动'}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full" style={{
+                          background: m.resolution === 'semantic' ? 'rgba(100,180,100,0.15)' :
+                                      m.resolution === 'impression' ? 'rgba(100,150,200,0.15)' :
+                                      m.resolution === 'archived' ? 'rgba(150,150,150,0.15)' :
+                                      'rgba(200,170,100,0.15)',
+                          color: m.resolution === 'semantic' ? '#5a9a5a' :
+                                 m.resolution === 'impression' ? '#5a8ab5' :
+                                 m.resolution === 'archived' ? '#888' :
+                                 '#b5993a'
+                        }}>
+                          {m.resolution === 'semantic' ? '身份' : m.resolution === 'impression' ? '印象' : m.resolution === 'detail' ? '细节' : '归档'}
+                        </span>
                         <span className="flex-1" />
                         <button onClick={() => startEdit(m)} className="text-xs transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>编辑</button>
+                        {m.resolution !== 'semantic' && m.resolution !== 'archived' && (
+                          <button onClick={() => updateResolution(m.id, 'semantic', m.persona_id)} className="text-xs transition-opacity hover:opacity-70" style={{ color: '#5a9a5a' }}>设为身份</button>
+                        )}
+                        {m.resolution !== 'archived' && (
+                          <button onClick={() => updateResolution(m.id, 'archived', m.persona_id)} className="text-xs transition-opacity hover:opacity-70" style={{ color: '#888' }}>归档</button>
+                        )}
                         <button onClick={() => deleteOne(m)} className="text-xs transition-opacity hover:opacity-70" style={{ color: t.settingsSubText }}>删除</button>
                       </div>
                     </>
