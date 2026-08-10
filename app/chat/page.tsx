@@ -253,12 +253,7 @@ export default function ChatPage() {
   const [themeKey, setThemeKey] = useState('morning')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [isMobile, setIsMobile] = useState(false)
-  const [dockPanel, setDockPanel] = useState<'music' | 'diary' | 'library' | 'tools' | null>(null)
-  const [diaryEntries, setDiaryEntries] = useState<Array<{ id: string; diary_date: string; content: string; memory_count: number | null }>>([])
-  const [diaryLoading, setDiaryLoading] = useState(false)
-  const [diaryGenerating, setDiaryGenerating] = useState(false)
-  const [diaryMessage, setDiaryMessage] = useState<string | null>(null)
-  const [diaryPersonaId, setDiaryPersonaId] = useState<string | null>(null)
+  const [dockPanel, setDockPanel] = useState<'music' | 'library' | 'tools' | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [transitioning, setTransitioning] = useState(false)
@@ -499,23 +494,6 @@ export default function ChatPage() {
   }, [])
 
   useEffect(() => {
-    if (dockPanel !== 'diary') return
-    const pid = diaryPersonaId ?? currentConversation?.personaId ?? 'default'
-    if (!diaryPersonaId) setDiaryPersonaId(pid)
-    setDiaryLoading(true)
-    setDiaryMessage(null)
-    fetch(`/api/persona-diary/list?personaId=${encodeURIComponent(pid)}`)
-      .then(r => r.ok ? r.json() : { diaries: [] })
-      .then(data => setDiaryEntries(data.diaries ?? []))
-      .catch(() => setDiaryEntries([]))
-      .finally(() => setDiaryLoading(false))
-  }, [dockPanel, diaryPersonaId])
-
-  useEffect(() => {
-    if (dockPanel !== 'diary') setDiaryPersonaId(null)
-  }, [dockPanel])
-
-  useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
     check()
     if (window.innerWidth < 640) setSidebarOpen(false)
@@ -690,33 +668,6 @@ export default function ChatPage() {
   const handleGoHome = () => {
     // setTransitioning(true)
     setTimeout(() => router.push('/'), 400)
-  }
-
-  const generateTodayDiary = async () => {
-    const personaId = diaryPersonaId ?? currentConversation?.personaId ?? 'default'
-    setDiaryGenerating(true)
-    setDiaryMessage(null)
-    try {
-      const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
-      const res = await fetch('/api/persona-diary/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ personaId, date: today }),
-      })
-      const data = await res.json()
-      if (data.skipped) {
-        setDiaryMessage('今天还没有值得记的事')
-      } else if (data.content) {
-        const listRes = await fetch(`/api/persona-diary/list?personaId=${encodeURIComponent(personaId)}`)
-        const listData = await listRes.json()
-        setDiaryEntries(listData.diaries ?? [])
-      } else {
-        setDiaryMessage('生成失败，请稍后再试')
-      }
-    } catch {
-      setDiaryMessage('生成失败，请稍后再试')
-    }
-    setDiaryGenerating(false)
   }
 
   const newConversationForPersona = (personaId: string) => {
@@ -1394,6 +1345,7 @@ export default function ChatPage() {
               const isActive = item.key === 'chat' ? !viewingSpace
                 : item.key === 'space' ? viewingSpace
                 : item.key === 'memories' ? false  // 跳转页面，不是面板状态
+                : item.key === 'diary' ? false  // 跳转页面，不是面板状态
                 : dockPanel === item.key
               return (
                 <div key={item.key} className="relative">
@@ -1401,6 +1353,11 @@ export default function ChatPage() {
                     onClick={() => {
                       if (item.key === 'memories') {
                         router.push('/memories')
+                        setDockPanel(null)
+                        return
+                      }
+                      if (item.key === 'diary') {
+                        router.push('/diary')
                         setDockPanel(null)
                         return
                       }
@@ -1528,83 +1485,6 @@ export default function ChatPage() {
                           onChange={e => setTtsSpeed(parseFloat(e.target.value))}
                           style={{ width: '100%', accentColor: t.sendButton }} />
                       </div>
-                    </div>
-                  )}
-
-                  {/* 日记面板 */}
-                  {item.key === 'diary' && dockPanel === 'diary' && (
-                    <div
-                      className="absolute rounded-xl menu-animate"
-                      style={{
-                        left: '100%',
-                        top: 0,
-                        marginLeft: '8px',
-                        minWidth: '320px',
-                        maxWidth: '360px',
-                        maxHeight: '70vh',
-                        overflowY: 'auto',
-                        background: t.settingsBg,
-                        backdropFilter: 'blur(16px)',
-                        border: `1px solid ${t.headerBorder}`,
-                        boxShadow: t.inputShadow,
-                        zIndex: 10000,
-                      }}
-                    >
-                      <div
-                        className="px-4 py-3 flex items-center justify-between"
-                        style={{ borderBottom: `1px solid ${t.headerBorder}`, background: t.settingsBg, position: 'sticky', top: 0 }}
-                      >
-                        <span className="text-xs font-semibold" style={{ color: t.settingsSubText }}>📔 日记</span>
-                        <select
-                          value={diaryPersonaId ?? ''}
-                          onChange={e => setDiaryPersonaId(e.target.value)}
-                          className="rounded-lg px-2 py-1 text-xs outline-none cursor-pointer"
-                          style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
-                        >
-                          {allPersonas.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={generateTodayDiary}
-                          disabled={diaryGenerating}
-                          className="text-xs px-2 py-1 rounded-lg transition-opacity hover:opacity-70 disabled:opacity-40"
-                          style={{ background: t.userBubble, color: t.headerText, border: `1px solid ${t.sendButton}` }}
-                        >
-                          {diaryGenerating ? '生成中…' : '生成今天'}
-                        </button>
-                      </div>
-
-                      {diaryMessage && (
-                        <div className="px-4 py-2 text-xs" style={{ color: t.settingsSubText, borderBottom: `1px solid ${t.headerBorder}` }}>
-                          {diaryMessage}
-                        </div>
-                      )}
-
-                      {diaryLoading ? (
-                        <div className="px-4 py-8 text-xs text-center" style={{ color: t.settingsSubText }}>加载中…</div>
-                      ) : diaryEntries.length === 0 ? (
-                        <div className="px-4 py-8 text-center">
-                          <p className="text-xs leading-relaxed mb-3" style={{ color: t.settingsSubText }}>
-                            还没有日记，点下面生成今天的第一篇吧
-                          </p>
-                          <button
-                            onClick={generateTodayDiary}
-                            disabled={diaryGenerating}
-                            className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-70 disabled:opacity-40"
-                            style={{ background: t.userBubble, color: t.headerText, border: `1px solid ${t.sendButton}` }}
-                          >
-                            {diaryGenerating ? '生成中…' : '生成今天'}
-                          </button>
-                        </div>
-                      ) : (
-                        diaryEntries.map(entry => (
-                          <div key={entry.id} className="px-4 py-3" style={{ borderBottom: `1px solid ${t.headerBorder}` }}>
-                            <div className="text-xs font-semibold mb-1.5" style={{ color: t.settingsText }}>{entry.diary_date}</div>
-                            <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: t.settingsSubText }}>{entry.content}</p>
-                          </div>
-                        ))
-                      )}
                     </div>
                   )}
 
