@@ -56,6 +56,60 @@ export async function POST(req: Request) {
   const fullMessages = fullSystemPrompt ? [{ role: 'system', content: fullSystemPrompt }, ...messages] : messages
 
   const startedAt = Date.now()
+
+  const isAnthropic = resolvedModel.startsWith('anthropic/')
+
+  if (isAnthropic) {
+    // Anthropic 原生格式：system 作为顶层字段，分 block 加 cache_control
+    const systemBlocks: Array<{ type: string; text: string; cache_control?: { type: string } }> = []
+
+    // 第一块：角色人设（变动频率最低，缓存命中率最高）
+    if (systemPrompt) {
+      systemBlocks.push({
+        type: 'text',
+        text: systemPrompt,
+        cache_control: { type: 'ephemeral' },
+      })
+    }
+
+    // 第二块：长期记忆（每次对话内不变，跨对话可能变）
+    if (longTermMemory) {
+      systemBlocks.push({
+        type: 'text',
+        text: `【长期记忆】\n${longTermMemory}`,
+      })
+    }
+
+    const body: Record<string, unknown> = {
+      model: resolvedModel,
+      messages, // 不含 system message
+      stream: true,
+      temperature: resolvedTemp,
+      max_tokens: 4096,
+    }
+    if (systemBlocks.length > 0) {
+      body.system = systemBlocks
+    }
+
+    const upstream = await fetch(`${resolvedUrl}${resolvedEndpoint}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resolvedKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => '')
+      logApiUsage({ purpose: 'chat', model: resolvedModel, duration_ms: Date.now() - startedAt, status: 'error', error_message: `upstream ${upstream.status}: ${errText}` })
+      return Response.json({ error: `上游 API 错误 (${upstream.status})${errText ? '：' + errText.slice(0, 200) : ''}` }, { status: upstream.status })
+    }
+
+    logApiUsage({ purpose: 'chat', model: resolvedModel, duration_ms: Date.now() - startedAt, status: 'success' })
+    return new Response(upstream.body, { headers: { 'Content-Type': 'text/event-stream' } })
+  }
+
   const upstream = await fetch(`${resolvedUrl}${resolvedEndpoint}`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${resolvedKey}`, 'Content-Type': 'application/json' },
