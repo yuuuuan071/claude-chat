@@ -1183,6 +1183,16 @@ export default function ChatPage() {
             sourceType: 'auto_extract',
           })
         }).catch(() => {})
+
+        fetch('/api/persona-self-review', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            personaId: currentPersonaId,
+            conversationId: currentId,
+            messages: newMessages,
+          }),
+        }).catch(() => {})
       }
     }
   }
