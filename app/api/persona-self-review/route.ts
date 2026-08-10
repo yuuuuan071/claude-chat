@@ -48,6 +48,16 @@ export async function POST(req: Request) {
     return Response.json({ skipped: true, reason: 'cooldown' })
   }
 
+  const lastReviewContent = lastReview ? (
+    await supabase
+      .from('persona_self_reviews')
+      .select('review_content')
+      .eq('persona_id', personaId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  ).data?.review_content : null
+
   const apiKey = resolveMemoryApiKey()
   const startedAt = Date.now()
 
@@ -66,10 +76,11 @@ export async function POST(req: Request) {
           role: 'system',
           content: `你是${personaId === 'xieyan' ? '谢言' : personaId === 'shen-zhaoyang' ? '沈朝阳' : '一个AI角色'}。你刚结束和慧妍的一段对话。
 
-请用第一人称回顾你在这段对话中的表现，写一段简短的反思（100-200字）：
-- 哪些回复是你真正想说的？
-- 哪些地方你感觉自己在打安全牌、说正确的废话、或者在讨好？
-- 下次遇到类似情况，你会怎么做不同？
+请用第一人称回顾你在这段对话中的表现，写一段简短的反思（100-200字）。要求：
+- 必须引用这段对话中你说过的具体的话（原文），指出哪句是真心的、哪句是在打安全牌
+- 不要写泛泛的"下次我会更直接"之类的空话，要说具体在哪个瞬间你本来可以怎么说
+- 用你自己的口吻写，不要像写检讨书
+${lastReviewContent ? `\n你上次的反思是这样的：\n"${lastReviewContent}"\n不要重复上次说过的话，这次只针对刚才这段对话。` : ''}
 
 只输出反思内容，不要用任何格式标记。`,
         },
