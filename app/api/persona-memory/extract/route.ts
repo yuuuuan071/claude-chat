@@ -6,26 +6,15 @@ const MODEL = 'deepseek/deepseek-chat'
 
 type IncomingMessage = { role: string; content: string }
 
-export async function POST(req: Request) {
-  const { personaId, conversationId, messages, sourceType = 'auto_extract' } = await req.json() as {
-    personaId?: string
-    conversationId?: string
-    messages?: IncomingMessage[]
-    sourceType?: string
-  }
-
-  if (!personaId || !conversationId || !messages || messages.length === 0) {
-    return Response.json({ error: 'missing personaId, conversationId or messages' }, { status: 400 })
-  }
-
-  const supabase = getSupabase()
-
-  const transcript = messages
-    .map(m => `${m.role === 'user' ? '慧妍' : '角色'}: ${m.content}`)
-    .join('\n')
-
-  const apiKey = resolveMemoryApiKey()
-  const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
+async function runDetailExtraction(
+  supabase: ReturnType<typeof getSupabase>,
+  transcript: string,
+  personaId: string,
+  conversationId: string,
+  sourceType: string,
+  apiKey: string,
+  baseUrl: string
+): Promise<Response> {
   const startedAt = Date.now()
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -173,7 +162,11 @@ ${transcript}`
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  // impression 级别的模糊印象：概括整段对话的话题和氛围，失败不影响主流程
+  return Response.json({ inserted: rows.length, skipped_duplicates: skippedDuplicates })
+}
+
+// impression 级别的模糊印象：概括整段对话的话题和氛围，独立于 detail 提取，失败不影响主流程
+async function generateImpression(transcript: string, personaId: string, conversationId: string, apiKey: string, baseUrl: string) {
   try {
     const impressionStartedAt = Date.now()
     const impressionRes = await fetch(`${baseUrl}/chat/completions`, {
@@ -212,6 +205,7 @@ ${transcript}`
       })
       const impressionText = impressionData.choices?.[0]?.message?.content?.trim()
       if (impressionText) {
+        const supabase = getSupabase()
         await supabase.from('persona_memories').insert({
           persona_id: personaId,
           content: impressionText,
@@ -224,6 +218,31 @@ ${transcript}`
   } catch (e) {
     console.warn('persona-memory/extract: impression generation failed:', e)
   }
+}
 
-  return Response.json({ inserted: rows.length, skipped_duplicates: skippedDuplicates })
+export async function POST(req: Request) {
+  const { personaId, conversationId, messages, sourceType = 'auto_extract' } = await req.json() as {
+    personaId?: string
+    conversationId?: string
+    messages?: IncomingMessage[]
+    sourceType?: string
+  }
+
+  if (!personaId || !conversationId || !messages || messages.length === 0) {
+    return Response.json({ error: 'missing personaId, conversationId or messages' }, { status: 400 })
+  }
+
+  const supabase = getSupabase()
+
+  const transcript = messages
+    .map(m => `${m.role === 'user' ? '慧妍' : '角色'}: ${m.content}`)
+    .join('\n')
+
+  const apiKey = resolveMemoryApiKey()
+  const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
+
+  // 无论 detail 提取成功、失败还是空结果，只要 transcript 已构造好，就一定尝试生成 impression
+  const detailResponse = await runDetailExtraction(supabase, transcript, personaId, conversationId, sourceType, apiKey, baseUrl)
+  await generateImpression(transcript, personaId, conversationId, apiKey, baseUrl)
+  return detailResponse
 }
