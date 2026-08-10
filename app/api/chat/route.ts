@@ -81,6 +81,7 @@ export async function POST(req: Request) {
 
   const parts = [
     systemPrompt ?? '',
+    '没有在人设中提到的个人信息（城市、学校、职业等）就是没有，不要编。被问到就说没想过。',
     styleAnchor ? `【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}` : '',
     longTermMemory ? `【长期记忆】\n${longTermMemory}` : '',
     selfReview ? `【自省】\n上次对话后你回顾了自己的表现，注意到以下倾向：\n${selfReview}\n在这次对话中，留意这些模式，尽量做出更真实的回应。` : '',
@@ -96,6 +97,7 @@ export async function POST(req: Request) {
     // Anthropic: system 留在 messages 里，用 content blocks 格式带 cache_control
     const identityParts: string[] = []
     if (systemPrompt) identityParts.push(systemPrompt)
+    identityParts.push('没有在人设中提到的个人信息（城市、学校、职业等）就是没有，不要编。被问到就说没想过。')
     if (styleAnchor) identityParts.push(`【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}`)
     const identityText = identityParts.join('\n\n')
 
