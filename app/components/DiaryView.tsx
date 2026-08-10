@@ -127,7 +127,27 @@ export default function DiaryView({ theme: t }: { theme: Theme }) {
                 className="rounded-xl px-4 py-3 text-sm"
                 style={{ border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText, background: t.settingsInputBg }}
               >
-                <div className="text-xs font-semibold mb-1.5" style={{ color: t.settingsText }}>{entry.diary_date}</div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-xs font-semibold" style={{ color: t.settingsText }}>{entry.diary_date}</div>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/persona-diary/delete', {
+                          method: 'DELETE',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ id: entry.id }),
+                        })
+                        if (res.ok) {
+                          setEntries(prev => prev.filter(d => d.id !== entry.id))
+                        }
+                      } catch {}
+                    }}
+                    className="text-xs transition-opacity hover:opacity-70"
+                    style={{ color: t.settingsSubText }}
+                  >
+                    删除
+                  </button>
+                </div>
                 <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: t.settingsSubText }}>{entry.content}</p>
               </div>
             ))}
