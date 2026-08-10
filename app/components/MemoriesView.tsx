@@ -20,6 +20,7 @@ export default function MemoriesView({ theme: t }: { theme: Theme }) {
   const [personaFilter, setPersonaFilter] = useState('all')
   const [resolutionFilter, setResolutionFilter] = useState('active')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -88,6 +89,11 @@ export default function MemoriesView({ theme: t }: { theme: Theme }) {
 
   useEffect(() => { fetchAll() }, [])
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
   const formatDate = (iso: string) => {
     const d = new Date(iso)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -100,7 +106,7 @@ export default function MemoriesView({ theme: t }: { theme: Theme }) {
     (personaFilter === 'all' || m.persona_id === personaFilter) &&
     (resolutionFilter === 'all' ||
      (resolutionFilter === 'active' ? ['semantic', 'impression', 'detail'].includes(m.resolution) : m.resolution === resolutionFilter)) &&
-    (!search.trim() || m.content.toLowerCase().includes(search.trim().toLowerCase()))
+    (!debouncedSearch.trim() || m.content.toLowerCase().includes(debouncedSearch.trim().toLowerCase()))
   )
   const sorted = [...filtered].sort((a, b) => {
     const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -243,13 +249,24 @@ export default function MemoriesView({ theme: t }: { theme: Theme }) {
             <option value="archived">已归档</option>
             <option value="all">全部</option>
           </select>
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="搜索记忆内容…"
-            className="flex-1 min-w-[160px] rounded-xl px-3 py-2 text-xs outline-none"
-            style={inputStyle}
-          />
+          <div className="relative flex-1 min-w-[160px]">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="搜索记忆内容…"
+              className="w-full rounded-xl px-3 py-2 text-xs outline-none pr-7"
+              style={inputStyle}
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs transition-opacity hover:opacity-70"
+                style={{ color: t.settingsSubText }}
+              >
+                ×
+              </button>
+            )}
+          </div>
           <button
             onClick={() => setSortOrder(o => o === 'desc' ? 'asc' : 'desc')}
             className="text-xs px-3 py-2 rounded-xl transition-opacity hover:opacity-70"
@@ -257,6 +274,13 @@ export default function MemoriesView({ theme: t }: { theme: Theme }) {
           >
             {sortOrder === 'desc' ? '时间倒序 ↓' : '时间正序 ↑'}
           </button>
+        </div>
+
+        {/* 条目数量统计 */}
+        <div className="text-xs" style={{ color: t.settingsSubText }}>
+          {sorted.length === memories.length
+            ? `共 ${memories.length} 条记忆`
+            : `筛选结果 ${sorted.length} / ${memories.length} 条`}
         </div>
 
         {/* 风格锚定 */}
@@ -430,7 +454,9 @@ export default function MemoriesView({ theme: t }: { theme: Theme }) {
         {loading ? (
           <p className="text-xs text-center py-10" style={{ color: t.settingsSubText }}>加载中…</p>
         ) : sorted.length === 0 ? (
-          <p className="text-xs text-center py-10" style={{ color: t.settingsSubText }}>没有符合条件的记忆</p>
+          <p className="text-xs text-center py-10" style={{ color: t.settingsSubText }}>
+            {debouncedSearch.trim() || personaFilter !== 'all' || resolutionFilter !== 'active' ? '没有找到匹配的记忆' : '没有符合条件的记忆'}
+          </p>
         ) : (
           <div className="space-y-2">
             {sorted.map(m => (
