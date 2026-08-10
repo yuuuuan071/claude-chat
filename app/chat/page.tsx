@@ -1372,15 +1372,32 @@ export default function ChatPage() {
                   </>
                 ),
               },
+              {
+                key: 'memories' as const,
+                title: '记忆库',
+                icon: (
+                  <>
+                    <path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 01-2 2h-4a2 2 0 01-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7z" />
+                    <line x1="10" y1="22" x2="14" y2="22" />
+                    <line x1="9" y1="17" x2="15" y2="17" />
+                  </>
+                ),
+              },
             ]).map(item => {
               // 主视图类图标（聊天/空间）互斥且清浮层；浮层类图标（音乐台/日记/图书馆）只管自身开合
               const isActive = item.key === 'chat' ? !viewingSpace
                 : item.key === 'space' ? viewingSpace
+                : item.key === 'memories' ? false  // 跳转页面，不是面板状态
                 : dockPanel === item.key
               return (
                 <div key={item.key} className="relative">
                   <button
                     onClick={() => {
+                      if (item.key === 'memories') {
+                        router.push('/memories')
+                        setDockPanel(null)
+                        return
+                      }
                       if (item.key === 'chat') {
                         setDockPanel(null); setViewingSpace(false); setViewingPersona(null)
                       } else if (item.key === 'space') {
