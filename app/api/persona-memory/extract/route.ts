@@ -172,5 +172,58 @@ ${transcript}`
   const { error } = await supabase.from('persona_memories').insert(rows)
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
+
+  // impression 级别的模糊印象：概括整段对话的话题和氛围，失败不影响主流程
+  try {
+    const impressionStartedAt = Date.now()
+    const impressionRes = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 200,
+        messages: [{
+          role: 'user',
+          content: `请用一两句话概括这段对话的话题和氛围，只保留大方向，不要任何具体细节、数字、引用或人名以外的专有名词。示例："聊了工作上的烦心事，氛围比较低落但后来缓和了。"
+
+只输出概括内容，不要格式标记。
+
+对话内容：
+${transcript}`
+        }]
+      })
+    })
+
+    if (!impressionRes.ok) {
+      const errText = await impressionRes.text().catch(() => '')
+      logApiUsage({ purpose: 'impression_extract', model: MODEL, duration_ms: Date.now() - impressionStartedAt, status: 'error', error_message: `upstream ${impressionRes.status}: ${errText}` })
+    } else {
+      const impressionData: { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } } = await impressionRes.json()
+      logApiUsage({
+        purpose: 'impression_extract',
+        model: MODEL,
+        prompt_tokens: impressionData.usage?.prompt_tokens,
+        completion_tokens: impressionData.usage?.completion_tokens,
+        duration_ms: Date.now() - impressionStartedAt,
+        status: 'success',
+      })
+      const impressionText = impressionData.choices?.[0]?.message?.content?.trim()
+      if (impressionText) {
+        await supabase.from('persona_memories').insert({
+          persona_id: personaId,
+          content: impressionText,
+          resolution: 'impression',
+          source_type: 'auto_extract',
+          source_conversation_id: conversationId,
+        })
+      }
+    }
+  } catch (e) {
+    console.warn('persona-memory/extract: impression generation failed:', e)
+  }
+
   return Response.json({ inserted: rows.length, skipped_duplicates: skippedDuplicates })
 }
