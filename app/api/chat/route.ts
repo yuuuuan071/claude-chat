@@ -82,46 +82,38 @@ export async function POST(req: Request) {
   const isAnthropic = resolvedModel.startsWith('anthropic/')
 
   if (isAnthropic) {
-    // Anthropic 原生格式：system 作为顶层字段，分 block 加 cache_control
-    const systemBlocks: Array<{ type: string; text: string; cache_control?: { type: string } }> = []
+    // Anthropic: system 留在 messages 里，用 content blocks 格式带 cache_control
+    const identityParts: string[] = []
+    if (systemPrompt) identityParts.push(systemPrompt)
+    if (styleAnchor) identityParts.push(`【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}`)
+    const identityText = identityParts.join('\n\n')
 
-    // 第一块：角色人设 + 风格锚定（变动频率最低，缓存命中率最高）
-    if (systemPrompt || styleAnchor) {
-      const identityParts: string[] = []
-      if (systemPrompt) identityParts.push(systemPrompt)
-      if (styleAnchor) identityParts.push(`【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}`)
-      systemBlocks.push({
+    const systemContent: Array<{ type: string; text: string; cache_control?: { type: string } }> = []
+    if (identityText) {
+      systemContent.push({
         type: 'text',
-        text: identityParts.join('\n\n'),
+        text: identityText,
         cache_control: { type: 'ephemeral' },
       })
     }
-
-    // 第二块：长期记忆（每次对话内不变，跨对话可能变）
     if (longTermMemory) {
-      systemBlocks.push({
-        type: 'text',
-        text: `【长期记忆】\n${longTermMemory}`,
-      })
+      systemContent.push({ type: 'text', text: `【长期记忆】\n${longTermMemory}` })
+    }
+    if (selfReview) {
+      systemContent.push({ type: 'text', text: `【自省】\n上次对话后你回顾了自己的表现，注意到以下倾向：\n${selfReview}\n在这次对话中，留意这些模式，尽量做出更真实的回应。` })
     }
 
-    // 第三块：自省（每次可能不同，不加 cache_control）
-    if (selfReview) {
-      systemBlocks.push({
-        type: 'text',
-        text: `【自省】\n上次对话后你回顾了自己的表现，注意到以下倾向：\n${selfReview}\n在这次对话中，留意这些模式，尽量做出更真实的回应。`,
-      })
-    }
+    // system 放在 messages 第一条，content 用 blocks 格式
+    const anthropicMessages = systemContent.length > 0
+      ? [{ role: 'system', content: systemContent }, ...messages]
+      : messages
 
     const body: Record<string, unknown> = {
       model: resolvedModel,
-      messages, // 不含 system message
+      messages: anthropicMessages,
       stream: true,
       temperature: resolvedTemp,
       max_tokens: 4096,
-    }
-    if (systemBlocks.length > 0) {
-      body.system = systemBlocks
     }
 
     const upstream = await fetch(`${resolvedUrl}${resolvedEndpoint}`, {
