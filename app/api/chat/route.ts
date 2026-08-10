@@ -36,9 +36,10 @@ export async function POST(req: Request) {
   }
 
   let longTermMemory = ''
+  let styleAnchor = ''
   if (personaId) {
+    const supabase = getSupabase()
     try {
-      const supabase = getSupabase()
       const { data } = await supabase
         .from('persona_summaries')
         .select('summary')
@@ -46,10 +47,19 @@ export async function POST(req: Request) {
         .maybeSingle()
       if (data?.summary) longTermMemory = data.summary
     } catch {}
+    try {
+      const { data: anchorData } = await supabase
+        .from('persona_style_anchors')
+        .select('content')
+        .eq('persona_id', personaId)
+        .maybeSingle()
+      if (anchorData?.content) styleAnchor = anchorData.content
+    } catch {}
   }
 
   const parts = [
     systemPrompt ?? '',
+    styleAnchor ? `【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}` : '',
     longTermMemory ? `【长期记忆】\n${longTermMemory}` : '',
   ].filter(Boolean)
   const fullSystemPrompt = parts.join('\n\n')
@@ -63,11 +73,14 @@ export async function POST(req: Request) {
     // Anthropic 原生格式：system 作为顶层字段，分 block 加 cache_control
     const systemBlocks: Array<{ type: string; text: string; cache_control?: { type: string } }> = []
 
-    // 第一块：角色人设（变动频率最低，缓存命中率最高）
-    if (systemPrompt) {
+    // 第一块：角色人设 + 风格锚定（变动频率最低，缓存命中率最高）
+    if (systemPrompt || styleAnchor) {
+      const identityParts: string[] = []
+      if (systemPrompt) identityParts.push(systemPrompt)
+      if (styleAnchor) identityParts.push(`【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}`)
       systemBlocks.push({
         type: 'text',
-        text: systemPrompt,
+        text: identityParts.join('\n\n'),
         cache_control: { type: 'ephemeral' },
       })
     }
