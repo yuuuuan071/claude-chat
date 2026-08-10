@@ -18,6 +18,8 @@ import {
 import { type Persona, FALLBACK_PERSONAS, adaptPersona } from '../personas'
 import { generateId } from '../utils'
 import PersonaSettings from '../components/PersonaSettings'
+import MemoriesView from '../components/MemoriesView'
+import DiaryView from '../components/DiaryView'
 
 async function streamToString(res: Response): Promise<string> {
   if (!res.ok) return ''
@@ -260,6 +262,8 @@ export default function ChatPage() {
   const [collapsedPersonas, setCollapsedPersonas] = useState<Set<string>>(new Set())
   const [viewingPersona, setViewingPersona] = useState<Persona | null>(null)
   const [viewingSpace, setViewingSpace] = useState(false)
+  const [viewingMemories, setViewingMemories] = useState(false)
+  const [viewingDiary, setViewingDiary] = useState(false)
   const [dailyQuote, setDailyQuote] = useState('')
   const [sidebarWeather, setSidebarWeather] = useState<{ temp: number; description: string } | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
@@ -678,6 +682,8 @@ export default function ChatPage() {
     setViewingSpace(false)
     setInput('')
     setViewingPersona(null)
+    setViewingMemories(false)
+    setViewingDiary(false)
   }
 
   const togglePersonaCollapse = (personaId: string) => {
@@ -711,6 +717,8 @@ export default function ChatPage() {
     setInput('')
     setViewingPersona(null)
     setViewingSpace(false)
+    setViewingMemories(false)
+    setViewingDiary(false)
   }
 
   const startEditing = (id: string, title: string) => {
@@ -1342,29 +1350,35 @@ export default function ChatPage() {
               },
             ]).map(item => {
               // 主视图类图标（聊天/空间）互斥且清浮层；浮层类图标（音乐台/日记/图书馆）只管自身开合
-              const isActive = item.key === 'chat' ? !viewingSpace
+              const isActive = item.key === 'chat' ? !viewingSpace && !viewingMemories && !viewingDiary
                 : item.key === 'space' ? viewingSpace
-                : item.key === 'memories' ? false  // 跳转页面，不是面板状态
-                : item.key === 'diary' ? false  // 跳转页面，不是面板状态
+                : item.key === 'memories' ? viewingMemories
+                : item.key === 'diary' ? viewingDiary
                 : dockPanel === item.key
               return (
                 <div key={item.key} className="relative">
                   <button
                     onClick={() => {
                       if (item.key === 'memories') {
-                        router.push('/memories')
+                        setViewingMemories(true)
+                        setViewingSpace(false)
+                        setViewingPersona(null)
+                        setViewingDiary(false)
                         setDockPanel(null)
                         return
                       }
                       if (item.key === 'diary') {
-                        router.push('/diary')
+                        setViewingDiary(true)
+                        setViewingSpace(false)
+                        setViewingPersona(null)
+                        setViewingMemories(false)
                         setDockPanel(null)
                         return
                       }
                       if (item.key === 'chat') {
-                        setDockPanel(null); setViewingSpace(false); setViewingPersona(null)
+                        setDockPanel(null); setViewingSpace(false); setViewingPersona(null); setViewingMemories(false); setViewingDiary(false)
                       } else if (item.key === 'space') {
-                        setViewingSpace(true); setViewingPersona(null); setDockPanel(null)
+                        setViewingSpace(true); setViewingPersona(null); setDockPanel(null); setViewingMemories(false); setViewingDiary(false)
                       } else {
                         setDockPanel(item.key)
                       }
@@ -1780,7 +1794,7 @@ export default function ChatPage() {
               {isMobile && (
               <button
                 className="w-full flex items-center justify-between px-1 py-1 rounded-lg transition-opacity hover:opacity-70"
-                onClick={() => { setViewingSpace(true); setViewingPersona(null); closeSidebarOnMobile() }}
+                onClick={() => { setViewingSpace(true); setViewingPersona(null); setViewingMemories(false); setViewingDiary(false); closeSidebarOnMobile() }}
                 style={{ background: viewingSpace ? t.userBubble : 'transparent' }}
               >
                 <span className="text-base font-semibold" style={{ color: viewingSpace ? t.headerText : t.settingsSubText }}>空间</span>
@@ -1808,7 +1822,7 @@ export default function ChatPage() {
                     <div className="flex items-center gap-1 px-3 py-2">
                       <button
                         className="flex items-center gap-2 flex-1 min-w-0 transition-opacity hover:opacity-70"
-                        onClick={() => { setViewingPersona(persona); setViewingSpace(false); closeSidebarOnMobile() }}
+                        onClick={() => { setViewingPersona(persona); setViewingSpace(false); setViewingMemories(false); setViewingDiary(false); closeSidebarOnMobile() }}
                       >
                         <div className="w-2 h-2 rounded-full shrink-0" style={{ background: persona.color }} />
                         <span className="text-sm font-semibold flex-1 text-left truncate" style={{ color: t.headerText }}>{persona.name}</span>
@@ -2249,6 +2263,8 @@ export default function ChatPage() {
             <span className="text-xl font-semibold flex-1 text-center" style={{ color: t.headerText }}>
               {(() => {
                 if (viewingSpace) return '动态'
+                if (viewingMemories) return '记忆库'
+                if (viewingDiary) return '日记'
                 if (viewingPersona) return viewingPersona.name
                 const pid = currentConversation?.personaId ?? 'default'
                 if (pid === 'default') return 'Claude'
@@ -2473,6 +2489,10 @@ export default function ChatPage() {
                 })}
               </div>
             </div>
+          ) : viewingMemories ? (
+            <MemoriesView theme={t} />
+          ) : viewingDiary ? (
+            <DiaryView theme={t} />
           ) : viewingPersona ? (
             /* ===== 角色资料页 ===== */
             <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col gap-4">
