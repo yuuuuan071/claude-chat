@@ -21,7 +21,13 @@ function dice(a: string, b: string): number {
   return (2 * intersection) / (ba.size + bb.size)
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  const authHeader = req.headers.get('authorization')
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return Response.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
   const supabase = getSupabase()
   const THRESHOLD = 0.7
 
