@@ -258,6 +258,7 @@ export default function ChatPage() {
   const [diaryLoading, setDiaryLoading] = useState(false)
   const [diaryGenerating, setDiaryGenerating] = useState(false)
   const [diaryMessage, setDiaryMessage] = useState<string | null>(null)
+  const [diaryPersonaId, setDiaryPersonaId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [transitioning, setTransitioning] = useState(false)
@@ -499,15 +500,20 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (dockPanel !== 'diary') return
-    const personaId = currentConversation?.personaId ?? 'default'
+    const pid = diaryPersonaId ?? currentConversation?.personaId ?? 'default'
+    if (!diaryPersonaId) setDiaryPersonaId(pid)
     setDiaryLoading(true)
     setDiaryMessage(null)
-    fetch(`/api/persona-diary/list?personaId=${encodeURIComponent(personaId)}`)
+    fetch(`/api/persona-diary/list?personaId=${encodeURIComponent(pid)}`)
       .then(r => r.ok ? r.json() : { diaries: [] })
       .then(data => setDiaryEntries(data.diaries ?? []))
       .catch(() => setDiaryEntries([]))
       .finally(() => setDiaryLoading(false))
-  }, [dockPanel, currentConversation?.personaId])
+  }, [dockPanel, diaryPersonaId])
+
+  useEffect(() => {
+    if (dockPanel !== 'diary') setDiaryPersonaId(null)
+  }, [dockPanel])
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640)
@@ -687,7 +693,7 @@ export default function ChatPage() {
   }
 
   const generateTodayDiary = async () => {
-    const personaId = currentConversation?.personaId ?? 'default'
+    const personaId = diaryPersonaId ?? currentConversation?.personaId ?? 'default'
     setDiaryGenerating(true)
     setDiaryMessage(null)
     try {
@@ -1549,6 +1555,16 @@ export default function ChatPage() {
                         style={{ borderBottom: `1px solid ${t.headerBorder}`, background: t.settingsBg, position: 'sticky', top: 0 }}
                       >
                         <span className="text-xs font-semibold" style={{ color: t.settingsSubText }}>📔 日记</span>
+                        <select
+                          value={diaryPersonaId ?? ''}
+                          onChange={e => setDiaryPersonaId(e.target.value)}
+                          className="rounded-lg px-2 py-1 text-xs outline-none cursor-pointer"
+                          style={{ background: t.settingsInputBg, color: t.settingsText, border: `1px solid ${t.settingsInputBorder}` }}
+                        >
+                          {allPersonas.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
                         <button
                           onClick={generateTodayDiary}
                           disabled={diaryGenerating}
