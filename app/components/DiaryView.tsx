@@ -125,7 +125,7 @@ export default function DiaryView({ theme: t }: { theme: Theme }) {
               <div
                 key={entry.id}
                 className="rounded-xl px-4 py-3 text-sm"
-                style={{ border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText }}
+                style={{ border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText, background: t.settingsInputBg }}
               >
                 <div className="text-xs font-semibold mb-1.5" style={{ color: t.settingsText }}>{entry.diary_date}</div>
                 <p className="text-xs leading-relaxed whitespace-pre-wrap" style={{ color: t.settingsSubText }}>{entry.content}</p>
