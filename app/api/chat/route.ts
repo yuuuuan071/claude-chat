@@ -37,6 +37,7 @@ export async function POST(req: Request) {
 
   let longTermMemory = ''
   let styleAnchor = ''
+  let selfReview = ''
   if (personaId) {
     const supabase = getSupabase()
     try {
@@ -55,12 +56,23 @@ export async function POST(req: Request) {
         .maybeSingle()
       if (anchorData?.content) styleAnchor = anchorData.content
     } catch {}
+    try {
+      const { data: reviewData } = await supabase
+        .from('persona_self_reviews')
+        .select('review_content')
+        .eq('persona_id', personaId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (reviewData?.review_content) selfReview = reviewData.review_content
+    } catch {}
   }
 
   const parts = [
     systemPrompt ?? '',
     styleAnchor ? `【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}` : '',
     longTermMemory ? `【长期记忆】\n${longTermMemory}` : '',
+    selfReview ? `【自省】\n上次对话后你回顾了自己的表现，注意到以下倾向：\n${selfReview}\n在这次对话中，留意这些模式，尽量做出更真实的回应。` : '',
   ].filter(Boolean)
   const fullSystemPrompt = parts.join('\n\n')
   const fullMessages = fullSystemPrompt ? [{ role: 'system', content: fullSystemPrompt }, ...messages] : messages
@@ -90,6 +102,14 @@ export async function POST(req: Request) {
       systemBlocks.push({
         type: 'text',
         text: `【长期记忆】\n${longTermMemory}`,
+      })
+    }
+
+    // 第三块：自省（每次可能不同，不加 cache_control）
+    if (selfReview) {
+      systemBlocks.push({
+        type: 'text',
+        text: `【自省】\n上次对话后你回顾了自己的表现，注意到以下倾向：\n${selfReview}\n在这次对话中，留意这些模式，尽量做出更真实的回应。`,
       })
     }
 
