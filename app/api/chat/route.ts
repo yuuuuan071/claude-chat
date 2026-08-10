@@ -38,6 +38,7 @@ export async function POST(req: Request) {
   let longTermMemory = ''
   let styleAnchor = ''
   let selfReview = ''
+  let recentImpressions = ''
   if (personaId) {
     const supabase = getSupabase()
     try {
@@ -77,6 +78,18 @@ export async function POST(req: Request) {
         .maybeSingle()
       if (reviewData?.review_content) selfReview = reviewData.review_content
     } catch {}
+    try {
+      const { data: impressionRows } = await supabase
+        .from('persona_memories')
+        .select('content')
+        .eq('persona_id', personaId)
+        .eq('resolution', 'impression')
+        .order('created_at', { ascending: false })
+        .limit(2)
+      if (impressionRows?.length) {
+        recentImpressions = impressionRows.map((r: { content: string }) => r.content).join('\n')
+      }
+    } catch {}
   }
 
   const parts = [
@@ -85,6 +98,7 @@ export async function POST(req: Request) {
     styleAnchor ? `【语感参考】\n以下是你曾经说过的一段话，作为你语气和表达方式的参照。不要模仿具体内容，而是保持这种说话的质感：\n${styleAnchor}` : '',
     longTermMemory ? `【长期记忆】\n${longTermMemory}` : '',
     selfReview ? `【自省】\n上次对话后你回顾了自己的表现，注意到以下倾向：\n${selfReview}\n在这次对话中，留意这些模式，尽量做出更真实的回应。` : '',
+    recentImpressions ? `【近期印象】\n${recentImpressions}` : '',
   ].filter(Boolean)
   const fullSystemPrompt = parts.join('\n\n')
   const fullMessages = fullSystemPrompt ? [{ role: 'system', content: fullSystemPrompt }, ...messages] : messages
@@ -114,6 +128,9 @@ export async function POST(req: Request) {
     }
     if (selfReview) {
       systemContent.push({ type: 'text', text: `【自省】\n上次对话后你回顾了自己的表现，注意到以下倾向：\n${selfReview}\n在这次对话中，留意这些模式，尽量做出更真实的回应。` })
+    }
+    if (recentImpressions) {
+      systemContent.push({ type: 'text', text: `【近期印象】\n${recentImpressions}` })
     }
 
     // system 放在 messages 第一条，content 用 blocks 格式
