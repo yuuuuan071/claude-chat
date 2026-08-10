@@ -60,11 +60,10 @@ export default function LettersView({ theme: t, onUnreadChange }: { theme: Theme
         body: JSON.stringify({ id: letter.id }),
       })
       if (res.ok) {
-        setLetters(prev => {
-          const next = prev.map(l => l.id === letter.id ? { ...l, is_read: true } : l)
-          onUnreadChange?.(next.filter(l => !l.is_read).length)
-          return next
-        })
+        setLetters(prev => prev.map(l => l.id === letter.id ? { ...l, is_read: true } : l))
+        setTimeout(() => {
+          onUnreadChange?.(letters.filter(l => !l.is_read && l.id !== letter.id).length)
+        }, 0)
       }
     } catch {}
   }
