@@ -437,7 +437,7 @@ export default function MemoriesView({ theme: t }: { theme: Theme }) {
               <div
                 key={m.id}
                 className="rounded-xl px-4 py-3 text-sm flex gap-3"
-                style={{ border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText, background: t.settingsInputBg }}
+                style={{ border: `1px solid ${t.settingsInputBorder}`, color: t.settingsText, background: selectedIds.has(m.id) ? t.userBubble : t.settingsInputBg }}
               >
                 <input
                   type="checkbox"
