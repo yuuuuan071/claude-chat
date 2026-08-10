@@ -4,11 +4,15 @@ import { resolveMemoryApiKey, logApiUsage } from '@/lib/apiUsage'
 const MODEL = 'deepseek/deepseek-chat'
 
 export async function POST(req: Request) {
-  // Cron 鉴权
   const authHeader = req.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return Response.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
+  // 60% 概率发送
+  if (Math.random() > 0.6) {
+    return Response.json({ skipped: true, reason: 'dice_roll' })
   }
 
   const supabase = getSupabase()
@@ -24,22 +28,30 @@ export async function POST(req: Request) {
   const personaIds = [...new Set(personaRows?.map((r: { persona_id: string }) => r.persona_id) ?? [])]
 
   for (const personaId of personaIds) {
-    // 检查今天是否已经生成过（每天最多一封）
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
-    const { data: existing } = await supabase
-      .from('persona_letters')
-      .select('id')
+    // 查该角色最近的对话
+    const { data: recentConvs } = await supabase
+      .from('conversations')
+      .select('id, messages')
       .eq('persona_id', personaId)
-      .gte('created_at', todayStart.toISOString())
+      .order('updated_at', { ascending: false })
       .limit(1)
 
-    if (existing && existing.length > 0) {
-      results.push(`${personaId}: 今天已发过，跳过`)
-      continue
+    const recentConv = recentConvs?.[0]
+    const messages: Array<{ role: string; content: string; timestamp?: number; proactive?: boolean }> = recentConv?.messages ?? []
+    const lastMsg = messages[messages.length - 1]
+
+    // 如果最近对话的最后一条是 proactive assistant 消息，检查今天是否已发过
+    if (lastMsg?.role === 'assistant' && lastMsg?.proactive) {
+      const lastTime = lastMsg.timestamp ?? 0
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+      if (lastTime > todayStart.getTime()) {
+        results.push(`${personaId}: 今天已发过，跳过`)
+        continue
+      }
     }
 
-    // 查 semantic 条目作为角色了解
+    // 查 semantic + impression + 自省 构造上下文
     const { data: semanticRows } = await supabase
       .from('persona_memories')
       .select('content')
@@ -47,7 +59,6 @@ export async function POST(req: Request) {
       .eq('resolution', 'semantic')
       .order('created_at', { ascending: true })
 
-    // 查最近 3 条 impression 作为近期氛围
     const { data: impressionRows } = await supabase
       .from('persona_memories')
       .select('content')
@@ -56,7 +67,6 @@ export async function POST(req: Request) {
       .order('created_at', { ascending: false })
       .limit(3)
 
-    // 查最近一条自省
     const { data: reviewData } = await supabase
       .from('persona_self_reviews')
       .select('review_content')
@@ -121,11 +131,43 @@ ${contextParts.join('\n\n')}
       })
 
       if (content) {
-        await supabase.from('persona_letters').insert({
-          persona_id: personaId,
+        const newMessage = {
+          role: 'assistant' as const,
           content,
-        })
-        results.push(`${personaId}: 已生成`)
+          timestamp: Date.now(),
+          proactive: true,
+        }
+
+        if (recentConv && lastMsg?.role === 'assistant') {
+          // 最后一条是 assistant（用户没回复）→ 追加到这个对话
+          const updatedMessages = [...messages, newMessage]
+          await supabase
+            .from('conversations')
+            .update({ messages: updatedMessages, updated_at: new Date().toISOString() })
+            .eq('id', recentConv.id)
+          results.push(`${personaId}: 追加到对话 ${recentConv.id}`)
+        } else {
+          // 用户已回复或没有对话 → 新建对话
+          const newId = crypto.randomUUID()
+          await supabase.from('conversations').insert({
+            id: newId,
+            persona_id: personaId,
+            title: content.slice(0, 20) + (content.length > 20 ? '…' : ''),
+            messages: [newMessage],
+            summary: '',
+            summarized_count: 0,
+          })
+          results.push(`${personaId}: 新建对话 ${newId}`)
+        }
+
+        // 同时在 persona_letters 记录一份日志
+        try {
+          await supabase.from('persona_letters').insert({
+            persona_id: personaId,
+            content,
+          })
+        } catch {}
+
       } else {
         results.push(`${personaId}: 模型返回空内容`)
       }
