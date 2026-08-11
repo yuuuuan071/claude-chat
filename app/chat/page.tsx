@@ -228,7 +228,6 @@ export default function ChatPage() {
   const [showApiSettings, setShowApiSettings] = useState(false)
   const [devMode, setDevMode] = useState(false)
   const [thinkingEnabled, setThinkingEnabled] = useState(false)
-  const [thinkingMode, setThinkingMode] = useState<'short' | 'long'>('short')
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null)
   const [showDevPasswordDialog, setShowDevPasswordDialog] = useState(false)
   const [devPasswordInput, setDevPasswordInput] = useState('')
@@ -324,8 +323,6 @@ export default function ChatPage() {
         if (savedOverrides) setPersonaOverrides(JSON.parse(savedOverrides))
         setDevMode(localStorage.getItem('dev-mode') === 'true')
       setThinkingEnabled(localStorage.getItem('thinking-enabled') === 'true')
-      const savedThinkingMode = localStorage.getItem('thinking-mode')
-      if (savedThinkingMode === 'long') setThinkingMode('long')
         const savedConfigs = localStorage.getItem(API_CONFIGS_KEY)
         if (savedConfigs) setApiConfigs(JSON.parse(savedConfigs))
         const savedActive = localStorage.getItem(ACTIVE_CONFIG_KEY)
@@ -1699,20 +1696,6 @@ export default function ChatPage() {
                       >
                         心声模式：{thinkingEnabled ? '开启 ✓' : '关闭'}
                       </button>
-                      {thinkingEnabled && (
-                        <button
-                          onClick={() => {
-                            const next = thinkingMode === 'short' ? 'long' : 'short'
-                            setThinkingMode(next)
-                            localStorage.setItem('thinking-mode', next)
-                            setShowMenu(false)
-                          }}
-                          className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                          style={{ color: t.settingsText }}
-                        >
-                          心声深度：{thinkingMode === 'short' ? '简短' : '详细'}
-                        </button>
-                      )}
                     </div>
                     )
                     return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
@@ -2049,20 +2032,6 @@ export default function ChatPage() {
                         >
                           心声模式：{thinkingEnabled ? '开启 ✓' : '关闭'}
                         </button>
-                        {thinkingEnabled && (
-                          <button
-                            onClick={() => {
-                              const next = thinkingMode === 'short' ? 'long' : 'short'
-                              setThinkingMode(next)
-                              localStorage.setItem('thinking-mode', next)
-                              setShowMenu(false)
-                            }}
-                            className="w-full text-left px-4 py-2.5 text-xs font-medium transition-opacity hover:opacity-70"
-                            style={{ color: t.settingsText }}
-                          >
-                            心声深度：{thinkingMode === 'short' ? '简短' : '详细'}
-                          </button>
-                        )}
                       </div>
                       )
                       return isMobile && typeof document !== 'undefined' ? createPortal(menu, document.body) : menu
