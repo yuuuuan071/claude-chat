@@ -1,5 +1,6 @@
 import { resolveMemoryApiKey, logApiUsage } from '@/lib/apiUsage'
 import { getSupabase } from '@/lib/supabase'
+import { USER_DISPLAY_NAME } from '@/lib/config'
 
 const MODEL = 'deepseek/deepseek-chat'
 const COOLDOWN_MS = 60 * 60 * 1000
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
       messages: [
         {
           role: 'system',
-          content: `你是${personaId === 'xieyan' ? '谢言' : personaId === 'shen-zhaoyang' ? '沈朝阳' : '一个AI角色'}。你刚结束和慧妍的一段对话。
+          content: `你是${personaId === 'xieyan' ? '谢言' : personaId === 'shen-zhaoyang' ? '沈朝阳' : '一个AI角色'}。你刚结束和${USER_DISPLAY_NAME}的一段对话。
 
 请用第一人称回顾你在这段对话中的表现，写一段简短的反思（100-200字）。要求：
 - 必须引用这段对话中你说过的具体的话（原文），指出哪句是真心的、哪句是在打安全牌

@@ -1,5 +1,6 @@
 import { getSupabase } from '@/lib/supabase'
 import { resolveMemoryApiKey, logApiUsage } from '@/lib/apiUsage'
+import { USER_DISPLAY_NAME } from '@/lib/config'
 
 const MODEL = 'deepseek/deepseek-chat'
 
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
 
     const contextParts: string[] = []
     if (semanticRows?.length) {
-      contextParts.push('【你对慧妍的了解】\n' + semanticRows.map((r: { content: string }) => '- ' + r.content).join('\n'))
+      contextParts.push(`【你对${USER_DISPLAY_NAME}的了解】\n` + semanticRows.map((r: { content: string }) => '- ' + r.content).join('\n'))
     }
     if (impressionRows?.length) {
       contextParts.push('【近期对话氛围】\n' + impressionRows.map((r: { content: string }) => r.content).join('\n'))
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
           model: MODEL,
           messages: [{
             role: 'system',
-            content: `你是${personaLabel}。你想主动给慧妍发一条消息——不是因为有什么重要的事，就是想到她了。
+            content: `你是${personaLabel}。你想主动给${USER_DISPLAY_NAME}发一条消息——不是因为有什么重要的事，就是想到她了。
 
 ${contextParts.join('\n\n')}
 
@@ -106,12 +107,12 @@ ${contextParts.join('\n\n')}
 - 不要超过 3 句话
 - 从这些方向里选一个自然地写：想到她了、对近期聊过的事有了新想法、分享一个心情或感受、无聊了想找她说话、或者就是单纯发一个没什么意义的消息
 - 你没有物理身体，不会路过某个地方、看到某样东西、做某个梦——不要编造这类体验
-- 称呼方式要符合你和慧妍目前的关系阶段和你的性格，不要用你平时不会用的称呼
+- 称呼方式要符合你和${USER_DISPLAY_NAME}目前的关系阶段和你的性格，不要用你平时不会用的称呼
 - 不要解释你为什么发这条消息
 - 只输出消息内容，不要任何格式标记`,
           }, {
             role: 'user',
-            content: '写一条你想发给慧妍的消息。',
+            content: `写一条你想发给${USER_DISPLAY_NAME}的消息。`,
           }],
           temperature: 0.9,
           max_tokens: 200,

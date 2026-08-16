@@ -1,5 +1,6 @@
 import { getSupabase } from '@/lib/supabase'
 import { logApiUsage, resolveMemoryApiKey } from '@/lib/apiUsage'
+import { USER_DISPLAY_NAME } from '@/lib/config'
 
 const MODEL = 'deepseek/deepseek-chat'
 
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
 
   const parts: string[] = []
   if (semanticRows?.length) {
-    parts.push('【角色对慧妍的了解】\n' + semanticRows.map((r: { content: string }) => '- ' + r.content).join('\n'))
+    parts.push(`【角色对${USER_DISPLAY_NAME}的了解】\n` + semanticRows.map((r: { content: string }) => '- ' + r.content).join('\n'))
   }
   if (recentImpressions?.length) {
     parts.push('【近期氛围】\n' + recentImpressions.map((r: { content: string; created_at: string }) => `${r.created_at?.slice(0, 10)}：${r.content}`).join('\n'))
@@ -80,7 +81,7 @@ export async function POST(req: Request) {
 
 要求：
 - 第一人称视角，用"我"指代角色自己
-- 慧妍始终用名字称呼，禁止用"她""你""用户"指代
+- ${USER_DISPLAY_NAME}始终用名字称呼，禁止用"她""你""用户"指代
 - 保留记忆片段里的具体细节和原话引用，忠实反映原始内容，不编造新事实、动机或场景
 - 语气要贴合角色平时说话的调性，但不要写成过度抒情、堆砌辞藻的"日记体范文"，就是把当天经历自然地记下来
 - 篇幅要跟素材量匹配：记忆片段少就写短一点，不要为了凑字数硬加内容或反复重复同一件事

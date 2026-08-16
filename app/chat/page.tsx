@@ -17,6 +17,7 @@ import {
 } from '../conversations'
 import { type Persona, FALLBACK_PERSONAS, adaptPersona } from '../personas'
 import { generateId } from '../utils'
+import { USER_DISPLAY_NAME_CLIENT } from '@/lib/config'
 import PersonaSettings from '../components/PersonaSettings'
 import MemoriesView from '../components/MemoriesView'
 import DiaryView from '../components/DiaryView'
@@ -591,14 +592,14 @@ export default function ChatPage() {
       const recentMsgs = recentConv?.messages?.slice(-6) ?? []
       const recentContext = recentMsgs.length > 0
         ? '\n\n以下是你们最近聊过的内容（仅供参考，不必提及）：\n' +
-          recentMsgs.map(m => `${m.role === 'user' ? '慧妍' : persona.name}：${m.content}`).join('\n')
+          recentMsgs.map(m => `${m.role === 'user' ? USER_DISPLAY_NAME_CLIENT : persona.name}：${m.content}`).join('\n')
         : ''
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            messages: [{ role: 'user', content: `慧妍刚刚发了一条动态：「${content}」。请以你的角色身份，简短评论这条动态（1-3句话，朋友圈评论的语气）。如果和你们之间的记忆或最近聊过的内容有关联，可以自然带到；没有关联也完全没问题，正常评论就好，不要刻意。` }],
+            messages: [{ role: 'user', content: `${USER_DISPLAY_NAME_CLIENT}刚刚发了一条动态：「${content}」。请以你的角色身份，简短评论这条动态（1-3句话，朋友圈评论的语气）。如果和你们之间的记忆或最近聊过的内容有关联，可以自然带到；没有关联也完全没问题，正常评论就好，不要刻意。` }],
             systemPrompt: persona.systemPrompt + recentContext,
             personaName: persona.name,
             personaId: persona.id,
@@ -642,7 +643,7 @@ export default function ChatPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            messages: [{ role: 'user', content: `慧妍发了一条动态：「${postContent}」\n你评论了：「${comment.content}」\n慧妍回复你：「${text}」\n请用1-3句话，以朋友圈评论的语气自然回应她。不要解释，直接说。` }],
+            messages: [{ role: 'user', content: `${USER_DISPLAY_NAME_CLIENT}发了一条动态：「${postContent}」\n你评论了：「${comment.content}」\n${USER_DISPLAY_NAME_CLIENT}回复你：「${text}」\n请用1-3句话，以朋友圈评论的语气自然回应她。不要解释，直接说。` }],
             systemPrompt: persona.systemPrompt,
             personaName: persona.name,
             personaId: persona.id,
@@ -985,11 +986,11 @@ export default function ChatPage() {
       if (toSummarize.length > 0) {
         const personaName = allPersonas.find(p => p.id === currentConversation?.personaId)?.name ?? '我'
         const msgText = toSummarize
-          .map(m => `${m.role === 'user' ? '慧妍' : personaName}：${m.content}`)
+          .map(m => `${m.role === 'user' ? USER_DISPLAY_NAME_CLIENT : personaName}：${m.content}`)
           .join('\n')
         const summaryUserContent = summary
-          ? `以下是我之前的记忆：\n${summary}\n\n以下是新增对话内容，请以我的第一人称，把上述记忆和新内容重新整合成一段简洁的内心记忆，保留慧妍的情绪状态、关键细节和重要决定，去掉口语化重复：\n${msgText}`
-          : `请以我的第一人称，把以下和慧妍的对话整理成一段简洁的内心记忆，保留她的情绪状态、关键细节和重要决定，去掉口语化重复：\n${msgText}`
+          ? `以下是我之前的记忆：\n${summary}\n\n以下是新增对话内容，请以我的第一人称，把上述记忆和新内容重新整合成一段简洁的内心记忆，保留${USER_DISPLAY_NAME_CLIENT}的情绪状态、关键细节和重要决定，去掉口语化重复：\n${msgText}`
+          : `请以我的第一人称，把以下和${USER_DISPLAY_NAME_CLIENT}的对话整理成一段简洁的内心记忆，保留她的情绪状态、关键细节和重要决定，去掉口语化重复：\n${msgText}`
 
         try {
           const summaryRes = await fetch('/api/chat', {
@@ -997,7 +998,7 @@ export default function ChatPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               messages: [{ role: 'user', content: summaryUserContent }],
-              systemPrompt: '你是一个对话记忆整理助手。请以角色第一人称写一段简洁的内心记忆，记录和慧妍的对话要点、她的情绪状态和关键细节。只输出记忆内容，不加标题或说明。',
+              systemPrompt: `你是一个对话记忆整理助手。请以角色第一人称写一段简洁的内心记忆，记录和${USER_DISPLAY_NAME_CLIENT}的对话要点、她的情绪状态和关键细节。只输出记忆内容，不加标题或说明。`,
               personaId: currentPersonaId,
               ...getApiConfigForRequest(),
             }),
@@ -2539,7 +2540,7 @@ export default function ChatPage() {
                 {/* 备注 */}
                 <div className="flex items-center gap-6 text-sm">
                   <span style={{ color: t.settingsSubText }}>备注</span>
-                  <span style={{ color: t.settingsText }}>{viewingPersona.profile?.note ?? '慧妍'}</span>
+                  <span style={{ color: t.settingsText }}>{viewingPersona.profile?.note ?? USER_DISPLAY_NAME_CLIENT}</span>
                 </div>
                 {/* 分割线 */}
                 <div style={{ borderTop: `1px solid ${t.settingsInputBorder}` }} />

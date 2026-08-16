@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -53,3 +54,6 @@ fix_*.py
 
 # local-only backups
 /public/stickers_backup/
+
+# personal gift pages (contain personal content)
+public/gift/
